@@ -23,7 +23,6 @@
 #include <fstream>
 #include <stdlib.h>
 #include <vector>
-#include <list>
 #include <math.h>
 #include <time.h>
 #include "petscksp.h"
@@ -729,70 +728,6 @@ void DegreeOfFreedomAndEquationNumbers::PrintDofAndEquationNumbers(Initializatio
     }
 }
 
-
-class EachRowNozeroCount{
-public:
-    void SetDnnzAndOnnz(Initialization *, DegreeOfFreedomAndEquationNumbers * , int, int, PetscInt*, PetscInt*);
-};
-void EachRowNozeroCount::SetDnnzAndOnnz(Initialization *const initialization, DegreeOfFreedomAndEquationNumbers *const dof_and_equation_numbers, int equation_local_start, int equation_local_end_plus_one, PetscInt d_nnz[], PetscInt o_nnz[]){
-    int num_of_equations = (*dof_and_equation_numbers).get_num_of_equations();
-    int num_of_elements = (*((*initialization).get_mesh_parameters())).get_num_of_elements();
-    std::vector<int>& equation_numbers_of_nodes=(*dof_and_equation_numbers).get_equation_numbers_of_nodes();
-    std::vector<int> equation_numbers_in_elements=(*dof_and_equation_numbers).get_equation_numbers_in_elements();
-    int local_row_number = 0;
-    int diagonal_block_size = equation_local_end_plus_one - equation_local_start;
-    int upper_bound_include = equation_local_end_plus_one - 1;
-    int lower_bound_include = equation_local_start;
-    std::list<int> neighbor_equation_list;
-    
-    for(int local_row_number = 0; local_row_number < diagonal_block_size; local_row_number++){
-        d_nnz[local_row_number] = (PetscInt)1; // must at least have one (diagonally)
-        o_nnz[local_row_number] = (PetscInt)0;
-
-        int row_number = equation_local_start + local_row_number;
-        
-        for(int j=0;j<num_of_elements;j++){//searching...
-            for(int k=0;k<Constants::kNumOfNodesInElement_;k++){ //searching...
-                if(equation_numbers_in_elements[k+Constants::kNumOfNodesInElement_*j] == row_number){ //j-th element contains row_number
-                
-                    for(int l=0;l<Constants::kNumOfNodesInElement_;l++){
-                        
-                        int neighbor_equation_is = equation_numbers_in_elements[l+Constants::kNumOfNodesInElement_*j];
-                        if (neighbor_equation_is >= 0){
-                            //search if neighbor_equation_is is already in the list.
-                            bool equation_already_in_list = false;
-                            for (std::list<int>::iterator it = neighbor_equation_list.begin(); it != neighbor_equation_list.end(); ++it){
-                                if(*it == neighbor_equation_is){
-                                    equation_already_in_list = true;
-                                    break;
-                                }
-                            }
-                            if(equation_already_in_list == false){
-                                neighbor_equation_list.push_back(neighbor_equation_is);
-                            }
-                        }
-                    }
-                    
-                }// already found the elment
-            }
-        }
-
-        //  classify those in the diagonal block and those in the off-diagonal block
-        for (std::list<int>::iterator it = neighbor_equation_list.begin(); it != neighbor_equation_list.end(); ++it){
-            if( *it <= upper_bound_include && *it >= lower_bound_include) {
-                if(*it != row_number) {// must not be itself
-                    d_nnz[local_row_number] += (PetscInt)1;
-                }
-            } else {
-                o_nnz[local_row_number] += (PetscInt)1;
-            }
-        }
-
-    }
-
-}
-
-
 // find boundary nodes
 class BoundaryCondition{
 public:
@@ -1026,9 +961,7 @@ double TemperatureDependentVariables::get_body_heat_flux(const double temperatur
     double resistivity;
     double current_in_element_a = current_in_element_ma*1.0e-3;  // mA -> A
     double heater_crosssection_area_m_square=heater_crosssection_area_mm_square_*1.0e-3*1.0e-3;  //mm^2->m^2
-//    resistivity = 1.403e-15*temperature*temperature + 1.037e-8*temperature - 2.831e-6;// titanium heater
-    resistivity = -6.674e-13*temperature*temperature + 2.462e-9*temperature - 1.893e-7;// resistivity used in the IPISE paper.
-
+    resistivity = 1.403e-15*temperature*temperature + 1.037e-8*temperature - 2.831e-6;// titanium heater
     body_heat_flux = resistivity*pow((current_in_element_a/heater_crosssection_area_m_square),2);
     body_heat_flux *= 1.0e-6;
     return body_heat_flux;
@@ -1718,15 +1651,15 @@ int main(int argc, char **args) {
     PETSC_VEC current_temperature_field_global;
     PetscScalar error_norm = 0.0;
     PetscScalar rhs_norm = 0.0;
-    PetscInt equation_number_local_start, equation_number_local_end_plus_one, row_local_start, row_local_end_plus_one;
+
 
     /* Initialize PETSc */
     Petsc_Init(argc, args, help);
 
     if(rank == 0) {
-        printf("\n\n******************************************************************************************\n");
-        printf("*************************** Debugged on PETSC2.3.3 *********************************************\n");
-        printf("********************************************************************************************");
+        printf("\n\n*****************************this code only runs in parallel****************************\n");
+        printf("********************************************************************************************\n");
+        printf("********************************************************************************************\n\n");
         printf("\n\n\t*****Heat Transfer Simulation for Real Time Grain Growth Control of Copper Film*****\n");
         printf("\tThis code is developed for the project 'Real Time Control of Grain Growth in Metals' (NSF reference codes: 024E, 036E, 8022, AMPP)\n\n");
         printf("\tProject Investigators:\n");
@@ -1779,6 +1712,14 @@ int main(int argc, char **args) {
   
     TemperatureDependentVariables temperature_dependent_variables;
     temperature_dependent_variables.InitializeTemperatureDependentVariables(&initialization);
+    
+    /*
+    HalfBandWidth half_band_width;
+    half_band_width.set_accumulative_half_band_width_vector(&initialization, &dof_and_equation_numbers);
+    //  half_band_width.PrintHalfBandWidthInformation(num_of_equations);
+    int size_of_desparsed_stiffness_matrix = half_band_width.get_size_of_desparsed_stiffness_matrix();
+    std::vector<int>&accumulative_half_band_width_vector = half_band_width.get_accumulative_half_band_width_vector();
+    */
     
     BoundaryCondition boundary_condition;
     boundary_condition.InitializeBoundaryCondition(&initialization);
@@ -1848,111 +1789,47 @@ int main(int argc, char **args) {
 //    std::cout<<"1111\n";
 //    getchar();
    
-/*
+    
     // NOTE current_temperature_field_local does not go back to zero after every iteration
     ierr = VecCreate(PETSC_COMM_WORLD, &(sys.current_temperature_field_local));
     ierr = VecSetSizes(sys.current_temperature_field_local, PETSC_DECIDE, num_of_equations);
     ierr = VecSetFromOptions(sys.current_temperature_field_local);
-*/
-    /*Create the vectors and matrix we need for PETSc*/
-    Vec_Create(&sys,(PetscInt)num_of_equations);
-    //           std::cout<<"vec_creation finished \n";
-    Mat_Create(&sys, (PetscInt)num_of_equations, (PetscInt)num_of_equations);
-    //            std::cout<<"mat_creation finished \n";
-    MPI_Barrier(MPI_COMM_WORLD);
-    
+
     TemperatureFieldInitial temperature_field_initial;
     // set the initial temperature field, which is to initialize the current_temperature_field_local and the double vector: current_temperature_field_local
     temperature_field_initial.set_initial_temperature_field(essential_bc_nodes, current_temperature_field, &sys, &initialization, equation_numbers_of_nodes);
     MPI_Barrier(MPI_COMM_WORLD);
 
-    // get local ownership range
-    ierr = MatGetOwnershipRange(sys.Amat, &equation_number_local_start, &equation_number_local_end_plus_one);
-    ierr = VecGetOwnershipRange(sys.sol, &row_local_start, &row_local_end_plus_one);
-    
-    PetscInt *d_nnz = new PetscInt[equation_number_local_end_plus_one - equation_number_local_start];
-    PetscInt *o_nnz = new PetscInt[equation_number_local_end_plus_one - equation_number_local_start];
-
-    EachRowNozeroCount each_row_nozero_count;
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    each_row_nozero_count.SetDnnzAndOnnz(&initialization, &dof_and_equation_numbers, (int)equation_number_local_start, (int)equation_number_local_end_plus_one, d_nnz, o_nnz);
-    
-    MPI_Barrier(MPI_COMM_WORLD);
-    // once we have ownership range, we can preallocate memory for the matrices by providing d_nnz and o_nnz
-    Mat_Preallocation(&sys, d_nnz, o_nnz);
-    /*
-    if(rank == 1)
-        std::cout << equation_number_local_start <<" "<<equation_number_local_end_plus_one << "\n";
-    if(rank == 1)
-        std::cout << row_local_start <<" "<< row_local_end_plus_one << "\n";
-    */
-
     while(1){ // this while loop governs the iterations to solution
         
         ++iteration_number;
-     
+        
+        /*Create the vectors and matrix we need for PETSc*/
+        Vec_Create(&sys,(PetscInt)num_of_equations);
+        //            std::cout<<"vec_creation finished \n";
+        Mat_Create(&sys,(PetscInt)num_of_equations,(PetscInt)num_of_equations);
+        //            std::cout<<"mat_creation finished \n";
         MPI_Barrier(MPI_COMM_WORLD);
         
         for(int element_number=0; element_number < num_of_elements; element_number++) {
-            // check if there is at least one equation number in this element that lives in this processor
-            for (int node_count_inside = 1; node_count_inside < Constants::kNumOfNodesInElement_; node_count_inside++){
-                int equation_count = equation_numbers_in_elements[node_count_inside + element_number*Constants::kNumOfNodesInElement_];
-                if(equation_count >= equation_number_local_start && equation_count < equation_number_local_end_plus_one){
-                
-                    // okay, you are in my land, I have to take care of you
-                    elemental_matrix.set_coordinates_in_this_element(element_number, nodes_in_elements, x_coordinates, y_coordinates);
-                    elemental_matrix.set_element_stiffness_matrix(element_number, nodes_in_elements, material_id_of_elements, current_temperature_field, &temperature_dependent_variables);
-                    elemental_matrix.MapElementalToGlobalStiffness(&sys, equation_numbers_in_elements, element_number);
-                    std::vector<std::vector<double> >&element_stiffness_matrix = elemental_matrix.get_element_stiffness_matrix();
-                    boundary_condition.FixTemperature(element_number, element_stiffness_matrix, equation_numbers_in_elements, &sys);
-                    
-                    // okay, let's go to next element
-                    break; // break from "node_count_inside"
-                }
-            }
-
+            elemental_matrix.set_coordinates_in_this_element(element_number, nodes_in_elements, x_coordinates, y_coordinates);
+            elemental_matrix.set_element_stiffness_matrix(element_number, nodes_in_elements, material_id_of_elements, current_temperature_field, &temperature_dependent_variables);
+            elemental_matrix.MapElementalToGlobalStiffness(&sys, equation_numbers_in_elements, element_number);
+            std::vector<std::vector<double> >&element_stiffness_matrix = elemental_matrix.get_element_stiffness_matrix();
+            boundary_condition.FixTemperature(element_number, element_stiffness_matrix, equation_numbers_in_elements, &sys);
         }
-        
-        MPI_Barrier(MPI_COMM_WORLD);
         
         for(int heater_element_number=0; heater_element_number < num_of_elements_as_heater; heater_element_number++){
             int element_number = elements_as_heater[heater_element_number];
-            
-            // check if there is at least one equation number in this element that lives in this processor
-            for (int node_count_inside = 1; node_count_inside < Constants::kNumOfNodesInElement_; node_count_inside++){
-                int equation_count = equation_numbers_in_elements[node_count_inside + element_number*Constants::kNumOfNodesInElement_];
-                if(equation_count >= row_local_start && equation_count < row_local_end_plus_one){
-                    
-                    // okay, you are in my land, I have to take care of you
-                    heater_elements.set_coordinates_in_this_element(element_number, nodes_in_elements, x_coordinates, y_coordinates);
-                    heater_elements.HeatSupply(element_number, heater_element_number, &sys, nodes_in_elements, equation_numbers_in_elements, current_temperature_field, &temperature_dependent_variables, &initialization);
-
-                    // okay, let's go to next element
-                    break; // break from "node_count_inside"
-                }
-            }
+            heater_elements.set_coordinates_in_this_element(element_number, nodes_in_elements, x_coordinates, y_coordinates);
+            heater_elements.HeatSupply(element_number, heater_element_number, &sys, nodes_in_elements, equation_numbers_in_elements, current_temperature_field, &temperature_dependent_variables, &initialization);
         }
-        
-        MPI_Barrier(MPI_COMM_WORLD);
         
         //    elemental_body_heat_flux_tangential_matrix.PrintBodyHeatFluxTangentialMatrix(body_heat_flux_tangential_matrix);
         for(int radiation_element_number=0; radiation_element_number < num_of_elements_with_radiation; radiation_element_number++) {
             int element_number = elements_with_radiation[radiation_element_number];
-            
-            // check if there is at least one equation number in this element that lives in this processor
-            for (int node_count_inside = 1; node_count_inside < Constants::kNumOfNodesInElement_; node_count_inside++){
-                int equation_count = equation_numbers_in_elements[node_count_inside + element_number*Constants::kNumOfNodesInElement_];
-                if(equation_count >= row_local_start && equation_count < row_local_end_plus_one){
-                    
-                    // okay, you are in my land, I have to take care of you
-                    elemental_radiation_tangential_matrix_and_radiation_load.set_element_radiation_tangential_matrix_and_radiation_load(element_number, radiation_element_number, nodes_in_elements, current_temperature_field, &temperature_dependent_variables, x_coordinates, ambient_temperature);
-                    elemental_radiation_tangential_matrix_and_radiation_load.MapElementalToGlobalRadiationTangentialMatrixAndRadiationLoad(&sys, equation_numbers_in_elements, element_number);
-
-                    // okay, let's go to next element
-                    break; // break from "node_count_inside"
-                }
-            }
+            elemental_radiation_tangential_matrix_and_radiation_load.set_element_radiation_tangential_matrix_and_radiation_load(element_number, radiation_element_number, nodes_in_elements, current_temperature_field, &temperature_dependent_variables, x_coordinates, ambient_temperature);
+            elemental_radiation_tangential_matrix_and_radiation_load.MapElementalToGlobalRadiationTangentialMatrixAndRadiationLoad(&sys, equation_numbers_in_elements, element_number);
         }
         
         //      elemental_radiation_tangential_matrix_and_radiation_load.PrintRadiationTangentialMatrixAndRadiationLoad(radiation_tangential_matrix, radiation_load);
@@ -1968,22 +1845,23 @@ int main(int argc, char **args) {
 //            ierr = MatAssemblyEnd(sys.stiffness_matrix, MAT_FINAL_ASSEMBLY);
             //Indicate same nonzero structure of successive linear system matrices
 //            MatSetOption(sys.stiffness_matrix, MAT_NO_NEW_NONZERO_LOCATIONS);
-            
+
             Petsc_Assem_Matrices(&sys);
 //            std::cout<<"3333\n";
 //            getchar();
             
             MPI_Barrier(MPI_COMM_WORLD);
-            
+
             Petsc_Assem_Vectors(&sys);
 //            std::cout<<"44444\n";
 //            getchar();
-            
+
         }
         MPI_Barrier(MPI_COMM_WORLD);
 //        std::cout<<"55555\n";
 //        getchar();
       
+        
         // subtract stiffness_matrix * current_temperature_field from the rhs.
         // note here the stiffness matrix has already been added a negative sign on every component. This because we need to subtract the stiffness_matrix(original) * current_temperature_field
         PetscErrorCode ierr = MatMultAdd(sys.stiffness_matrix, sys.current_temperature_field_local, sys.rhs, sys.rhs);
@@ -1993,7 +1871,6 @@ int main(int argc, char **args) {
         //            std::cout<<"assembly finished\n";
 #endif
         MPI_Barrier(MPI_COMM_WORLD);
-
 //        std::cout<<"66666\n";
 //        getchar();
     
@@ -2015,7 +1892,7 @@ int main(int argc, char **args) {
         MPI_Barrier(MPI_COMM_WORLD);
 //        std::cout<<"77777\n";
 //        getchar();
-        
+
         ierr = VecNorm(sys.sol, NORM_2, &error_norm);
         ierr = VecNorm(sys.rhs, NORM_2, &rhs_norm);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -2047,11 +1924,9 @@ int main(int argc, char **args) {
         ierr = VecDestroy(current_temperature_field_global);
         
         // check for convergence
-        /*
         if(rank == 0){
             std::cout<<"error_norm: "<<(double)error_norm<<"  rhs_norm: "<<(double)rhs_norm<<"\n";
         }
-        */
         if((double)error_norm < Constants::kNormTolerance_ && (double)rhs_norm < Constants::kYFunctionTolerance_){// convergence must be satisfied first, then consider temperature increment size.
             MPI_Barrier(MPI_COMM_WORLD);
             if(rank == 0){
@@ -2062,12 +1937,13 @@ int main(int argc, char **args) {
         }
         
         //zero all necessary vectors and matrices for next iteration
-        iterations.ZeroVectorAndMatrix(&sys);
+//        iterations.ZeroVectorAndMatrix(&sys);
+        Petsc_Destroy(&sys);
 
     }//while
-    Petsc_Destroy(&sys);
+    
     //Must destroy current_temperature_field_local
-//    ierr = VecDestroy(sys.current_temperature_field_local);
+    ierr = VecDestroy(sys.current_temperature_field_local);
     
     /* Free all PETSc objects created for solve */
 //    Petsc_Destroy(&sys);
@@ -2089,14 +1965,8 @@ int main(int argc, char **args) {
         fclose(current_densities);
         printf("Analysis completed successfully!\n");
         printf(" a (model temperature field).vtk file, a (copper surface temperature).txt file and a (current_density).txt file have been generated\n\n");
-        
-        std::cout<<"\n number of equation is "<< num_of_equations << std::endl;
     }
     
-    
-    delete [] d_nnz; d_nnz = NULL;
-    delete [] o_nnz; o_nnz = NULL;
-  
     MPI_Barrier(MPI_COMM_WORLD);
     /*finalize PETSc*/
     Petsc_End();

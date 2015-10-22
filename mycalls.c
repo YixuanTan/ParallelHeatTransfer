@@ -1,10 +1,7 @@
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
  %% PETSc behind the scenes maintenance functions
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
-#include "mycalls.hpp"
-#include <stdlib.h>
-#include <iostream>
-
+#include "mycalls.h"
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
  %% Function to initialize Petsc
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% */
@@ -37,12 +34,6 @@ void Vec_Create(PETSC_STRUCT *obj, PetscInt m)
     ierr = VecSetSizes(obj->rhs, PETSC_DECIDE, m);
     ierr = VecSetFromOptions(obj->rhs);
     ierr = VecDuplicate(obj->rhs, &obj->sol);
-    
-//    ierr = VecDuplicate(obj->rhs, &obj->current_temperature_field_local);
-//    ierr = VecCreate(PETSC_COMM_WORLD, &obj->current_temperature_field_local);
-//    ierr = VecSetSizes(obj->current_temperature_field_local, PETSC_DECIDE, m);
-//    ierr = VecSetFromOptions(obj->current_temperature_field_local);
-
     return;
 }
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -54,14 +45,6 @@ void Mat_Create(PETSC_STRUCT *obj, PetscInt m, PetscInt n)
     ierr = MatCreate(PETSC_COMM_WORLD, &obj->Amat);
     ierr = MatSetSizes(obj->Amat,PETSC_DECIDE,PETSC_DECIDE,m,n);
     ierr = MatSetFromOptions(obj->Amat);
-    /*
-    ierr = MatDuplicate(obj->Amat, MAT_COPY_VALUES, &obj->mass_matrix);
-    ierr = MatDuplicate(obj->Amat, MAT_COPY_VALUES, &obj->stiffness_matrix);
-    */
-    ierr = MatCreate(PETSC_COMM_WORLD, &obj->stiffness_matrix);
-    ierr = MatSetSizes(obj->stiffness_matrix,PETSC_DECIDE,PETSC_DECIDE,m,n);
-    ierr = MatSetFromOptions(obj->stiffness_matrix);
-    
     return;
 }
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -82,44 +65,17 @@ void Petsc_Solve(PETSC_STRUCT *obj)
     return;
 }
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
- %% Function to do final assembly of matrices
+ %% Function to do final assembly of matrix and right hand side vector
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
-void Petsc_Assem_Matrices(PETSC_STRUCT *obj)
+void Petsc_Assem(PETSC_STRUCT *obj)
 {
     PetscErrorCode ierr;
     ierr = MatAssemblyBegin(obj->Amat, MAT_FINAL_ASSEMBLY);
     ierr = MatAssemblyEnd(obj->Amat, MAT_FINAL_ASSEMBLY);
-    
-    ierr = MatAssemblyBegin(obj->stiffness_matrix, MAT_FINAL_ASSEMBLY);
-    ierr = MatAssemblyEnd(obj->stiffness_matrix, MAT_FINAL_ASSEMBLY);
-    
-    //Indicate same nonzero structure of successive linear system matrices
-    MatSetOption(obj->Amat, MAT_NO_NEW_NONZERO_LOCATIONS);
-    MatSetOption(obj->stiffness_matrix, MAT_NO_NEW_NONZERO_LOCATIONS);
-    
-    MatSetOption(obj->Amat, MAT_SYMMETRIC);
-    MatSetOption(obj->stiffness_matrix, MAT_SYMMETRIC);
-
-    return;
-}
-
-/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
- %% Function to do final assembly of vectors
- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
-void Petsc_Assem_Vectors(PETSC_STRUCT *obj)
-{
-    PetscErrorCode ierr;
     ierr = VecAssemblyBegin(obj->rhs);
     ierr = VecAssemblyEnd(obj->rhs);
-    
-    ierr = VecAssemblyBegin(obj->current_temperature_field_local);
-    ierr = VecAssemblyEnd(obj->current_temperature_field_local);
-//    ierr = VecAssemblyBegin(obj->initial_temperature_field);
-//    ierr = VecAssemblyEnd(obj->initial_temperature_field);
-
     return;
 }
-
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
  %% Function to Destroy the matrix and vectors that have been created
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
@@ -130,12 +86,6 @@ void Petsc_Destroy(PETSC_STRUCT *obj)
     ierr = VecDestroy(obj->sol);
     ierr = MatDestroy(obj->Amat);
     ierr = KSPDestroy(obj->ksp);
-    
-//    s
-//    ierr = VecDestroy(obj->initial_temperature_field);
-//    ierr = MatDestroy(obj->mass_matrix);
-    ierr = MatDestroy(obj->stiffness_matrix);
-
     return;
 }
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -23,7 +23,6 @@
 #include <fstream>
 #include <stdlib.h>
 #include <vector>
-#include <list>
 #include <math.h>
 #include <time.h>
 #include "petscksp.h"
@@ -729,68 +728,48 @@ void DegreeOfFreedomAndEquationNumbers::PrintDofAndEquationNumbers(Initializatio
     }
 }
 
-
-class EachRowNozeroCount{
+/*
+class HalfBandWidth{
 public:
-    void SetDnnzAndOnnz(Initialization *, DegreeOfFreedomAndEquationNumbers * , int, int, PetscInt*, PetscInt*);
+    void set_accumulative_half_band_width_vector(Initialization *const, DegreeOfFreedomAndEquationNumbers *);
+    std::vector<int>& get_accumulative_half_band_width_vector(){return accumulative_half_band_width_vector_;}
+    double get_size_of_desparsed_stiffness_matrix(){return size_of_desparsed_stiffness_matrix_;}
+    void PrintHalfBandWidthInformation(int num_of_equations){
+        for(int i=0;i<num_of_equations;i++)
+        printf("accumulative half band-width at [%d] column/row is %d\n",i,accumulative_half_band_width_vector_[i]);
+    }
+    
+private:
+    std::vector<int> accumulative_half_band_width_vector_;
+    int size_of_desparsed_stiffness_matrix_;
 };
-void EachRowNozeroCount::SetDnnzAndOnnz(Initialization *const initialization, DegreeOfFreedomAndEquationNumbers *const dof_and_equation_numbers, int equation_local_start, int equation_local_end_plus_one, PetscInt d_nnz[], PetscInt o_nnz[]){
+void HalfBandWidth::set_accumulative_half_band_width_vector(Initialization *const initialization, DegreeOfFreedomAndEquationNumbers *const dof_and_equation_numbers){
     int num_of_equations = (*dof_and_equation_numbers).get_num_of_equations();
     int num_of_elements = (*((*initialization).get_mesh_parameters())).get_num_of_elements();
     std::vector<int>& equation_numbers_of_nodes=(*dof_and_equation_numbers).get_equation_numbers_of_nodes();
     std::vector<int> equation_numbers_in_elements=(*dof_and_equation_numbers).get_equation_numbers_in_elements();
-    int local_row_number = 0;
-    int diagonal_block_size = equation_local_end_plus_one - equation_local_start;
-    int upper_bound_include = equation_local_end_plus_one - 1;
-    int lower_bound_include = equation_local_start;
-    std::list<int> neighbor_equation_list;
     
-    for(int local_row_number = 0; local_row_number < diagonal_block_size; local_row_number++){
-        d_nnz[local_row_number] = (PetscInt)1; // must at least have one (diagonally)
-        o_nnz[local_row_number] = (PetscInt)0;
-
-        int row_number = equation_local_start + local_row_number;
-        
+    accumulative_half_band_width_vector_.resize(num_of_equations,0);
+    int smallest_equation_number;
+    for(int i=0;i<num_of_equations;i++){
+        smallest_equation_number=num_of_equations-1;
         for(int j=0;j<num_of_elements;j++){//searching...
             for(int k=0;k<Constants::kNumOfNodesInElement_;k++){ //searching...
-                if(equation_numbers_in_elements[k+Constants::kNumOfNodesInElement_*j] == row_number){ //j-th element contains row_number
-                
+                if(equation_numbers_in_elements[k+Constants::kNumOfNodesInElement_*j]==i){
                     for(int l=0;l<Constants::kNumOfNodesInElement_;l++){
-                        
-                        int neighbor_equation_is = equation_numbers_in_elements[l+Constants::kNumOfNodesInElement_*j];
-                        if (neighbor_equation_is >= 0){
-                            //search if neighbor_equation_is is already in the list.
-                            bool equation_already_in_list = false;
-                            for (std::list<int>::iterator it = neighbor_equation_list.begin(); it != neighbor_equation_list.end(); ++it){
-                                if(*it == neighbor_equation_is){
-                                    equation_already_in_list = true;
-                                    break;
-                                }
-                            }
-                            if(equation_already_in_list == false){
-                                neighbor_equation_list.push_back(neighbor_equation_is);
-                            }
-                        }
+                        if(equation_numbers_in_elements[l+Constants::kNumOfNodesInElement_*j]<smallest_equation_number &&
+                           equation_numbers_in_elements[l+Constants::kNumOfNodesInElement_*j]>=0)
+                        smallest_equation_number=equation_numbers_in_elements[l+Constants::kNumOfNodesInElement_*j];
                     }
-                    
-                }// already found the elment
-            }
-        }
-
-        //  classify those in the diagonal block and those in the off-diagonal block
-        for (std::list<int>::iterator it = neighbor_equation_list.begin(); it != neighbor_equation_list.end(); ++it){
-            if( *it <= upper_bound_include && *it >= lower_bound_include) {
-                if(*it != row_number) {// must not be itself
-                    d_nnz[local_row_number] += (PetscInt)1;
                 }
-            } else {
-                o_nnz[local_row_number] += (PetscInt)1;
             }
         }
-
+        int half_band_width=(i-smallest_equation_number)+1; // half band width, gap+1
+        if(i!=0) accumulative_half_band_width_vector_[i]=accumulative_half_band_width_vector_[i-1]+half_band_width;
     }
-
+    size_of_desparsed_stiffness_matrix_ = accumulative_half_band_width_vector_[num_of_equations-1]+1;
 }
+*/
 
 
 // find boundary nodes
@@ -957,7 +936,7 @@ public:
 //    double get_emissivity_derivative(double);
     double get_heater_crosssection_area_mm_square() const
     {return heater_crosssection_area_mm_square_;}
-//    void PrintTemperatureDependentVariables(std::vector<int>&,Initialization *const);
+    void PrintTemperatureDependentVariables(std::vector<int>&,Initialization *const);
     
 private:
     double heater_crosssection_area_mm_square_;
@@ -1026,9 +1005,7 @@ double TemperatureDependentVariables::get_body_heat_flux(const double temperatur
     double resistivity;
     double current_in_element_a = current_in_element_ma*1.0e-3;  // mA -> A
     double heater_crosssection_area_m_square=heater_crosssection_area_mm_square_*1.0e-3*1.0e-3;  //mm^2->m^2
-//    resistivity = 1.403e-15*temperature*temperature + 1.037e-8*temperature - 2.831e-6;// titanium heater
-    resistivity = -6.674e-13*temperature*temperature + 2.462e-9*temperature - 1.893e-7;// resistivity used in the IPISE paper.
-
+    resistivity = 1.403e-15*temperature*temperature + 1.037e-8*temperature - 2.831e-6;// titanium heater
     body_heat_flux = resistivity*pow((current_in_element_a/heater_crosssection_area_m_square),2);
     body_heat_flux *= 1.0e-6;
     return body_heat_flux;
@@ -1047,7 +1024,7 @@ double TemperatureDependentVariables::get_body_heat_flux_derivative(const double
     body_heat_flux_derivative *= 1.0e-6;
     return body_heat_flux_derivative;
 }
-/*
+
 void TemperatureDependentVariables::PrintTemperatureDependentVariables(std::vector<int>& material_id_of_elements, Initialization *const initialization){
     for(int i=0;i<Constants::kNumOfHeaters_;i++){
         printf("currents_in_heater_[%d] = %f\n", i, (*((*initialization).get_currents_in_heater())).get_current_in_heater()[i]);
@@ -1061,7 +1038,7 @@ void TemperatureDependentVariables::PrintTemperatureDependentVariables(std::vect
     printf("get_body_heat_flux = %f\n", get_body_heat_flux(300.0, 50.0));
     printf("get_body_heat_flux_derivative = %.16f\n", get_body_heat_flux_derivative(300.0, 50.0));
 }
-*/
+
 
 class HeaterElements:public MappingShapeFunctionAndDerivatives {
 public:
@@ -1071,7 +1048,7 @@ public:
     {return num_of_elements_as_heater_;}
     std::vector<int> &get_elements_as_heater()
     {return elements_as_heater_;}
-    void HeatSupply(int, int, PETSC_STRUCT*, std::vector<int>&, std::vector<int>&, std::vector<double>&, TemperatureDependentVariables*, Initialization *const);
+    void HeatSupply(int, int, std::vector<double>&, PETSC_STRUCT*, std::vector<int>&, std::vector<double>&, TemperatureDependentVariables*, Initialization *const);
     void PrintHeaterElements(){
         for(int i=0;i<num_of_elements_as_heater_;i++)
         printf("elements_as_heater_[%d] = %d\n", i, elements_as_heater_[i]);
@@ -1101,7 +1078,7 @@ void HeaterElements::set_elements_as_heater(Initialization *const initialization
     }
 }
 
-void HeaterElements::HeatSupply(const int element_number, const int heater_element_number, PETSC_STRUCT* obj, std::vector<int>&nodes_in_elements, std::vector<int>&equation_numbers_in_elements, std::vector<double>&current_temperature_field, TemperatureDependentVariables *const temperature_dependent_variables, Initialization *const initialization){//Calculate internal load contribution
+void HeaterElements::HeatSupply(const int element_number, const int heater_element_number, PETSC_STRUCT* obj, std::vector<int>&nodes_in_elements, std::vector<int>&equation_numbers_in_elements, std::vector<double>&current_temperature_field, TemperatureDependentVariables *const temperature_dependent_variables,Initialization *const initialization){//Calculate internal load contribution
     //integration rule
     int num_of_integration_points=2;
     double coordinates_of_integration_points[2]={-0.57735026, 0.57735026}; //gaussian quadrature coordinates
@@ -1128,7 +1105,7 @@ void HeaterElements::HeatSupply(const int element_number, const int heater_eleme
             for(int j=0;j<Constants::kNumOfNodesInElement_;j++){
                 double equation_number=equation_numbers_in_elements[j+element_number*4];
                 if(equation_number>=0){
-                    PetscScalar add_term = shape_function_[j]*(*temperature_dependent_variables).get_body_heat_flux(temperature,current)*determinant_of_jacobian_matrix_*ksi_weight*eta_weight;
+                    PetscSCalar add_term = shape_function_[j]*(*temperature_dependent_variables).get_body_heat_flux(temperature,current)*determinant_of_jacobian_matrix_*ksi_weight*eta_weight;
                     PetscErrorCode ierr = VecSetValue(obj->rhs, (PetscInt)equation_number, add_term, ADD_VALUES);
 /*
                     heat_load[equation_number] += shape_function_[j]*
@@ -1177,19 +1154,18 @@ void RadiationElements::PrintRadiationElements(){
 
 class TemperatureFieldInitial{
 public:
-    void set_initial_temperature_field(std::vector<int>&, std::vector<double>&, PETSC_STRUCT*, Initialization *const, std::vector<int>&);
+    void set_initial_temperature_field(std::vector<int>&, PETSC_STRUCT*, Initialization *const, std::vector<int>&);
 //    void PrintInitialTemperatureField(std::vector<double>&);
 };
-void TemperatureFieldInitial::set_initial_temperature_field(std::vector<int>&essential_bc_nodes, std::vector<double>&current_temperature_field, PETSC_STRUCT* obj, Initialization *const initialization, std::vector<int>& equation_numbers_of_nodes){
+void TemperatureFieldInitial::set_initial_temperature_field(std::vector<int>&essential_bc_nodes,PETSC_STRUCT* obj, Initialization *const initialization, std::vector<int>& equation_numbers_of_nodes){
     double boundary_condition_temperature_=(*((*initialization).get_analysis_constants())).get_boundary_condition_temperature();
     double sample_initial_temperature_=(*((*initialization).get_analysis_constants())).get_sample_initial_temperature();
     int num_of_nodes = (*((*initialization).get_mesh_parameters())).get_num_of_nodes();
     for(int i=0; i<num_of_nodes; i++){
         if(equation_numbers_of_nodes[i]<0) {
-            current_temperature_field[i] = boundary_condition_temperature_;
+            PetscErrorCode ierr = VecSetValue(obj->initial_temperature_field, (PetscInt)i, (PetscScalar)boundary_condition_temperature_, ADD_VALUES);
         } else {
-            current_temperature_field[i] = sample_initial_temperature_;
-            PetscErrorCode ierr = VecSetValue(obj->current_temperature_field_local, (PetscInt)(equation_numbers_of_nodes[i]), (PetscScalar)sample_initial_temperature_, ADD_VALUES);
+            PetscErrorCode ierr = VecSetValue(obj->initial_temperature_field, (PetscInt)i, (PetscScalar)sample_initial_temperature_, ADD_VALUES);
         }
     }
 }
@@ -1390,6 +1366,9 @@ public:
     void MapElementalToGlobalStiffness(PETSC_STRUCT*, std::vector<int>&, int);
     std::vector<std::vector<double> >& get_element_stiffness_matrix(){return element_stiffness_matrix_;}
 //    void PrintStiffnessMatrix(std::vector<double>&);
+    void set_element_mass_matrix(int, std::vector<int>&, std::vector<int>&, std::vector<double>&, TemperatureDependentVariables*, std::vector<double>&, double);
+    void MapElementalToGlobalMass(std::vector<double>&, std::vector<int>&, int);
+//    void PrintMassMatrix(int, std::vector<double>&);
 
 private:
     std::vector<std::vector<double> > element_stiffness_matrix_;
@@ -1459,18 +1438,16 @@ void ElementalMatrix::set_element_stiffness_matrix(const int element_number, std
 }
 
 void ElementalMatrix::MapElementalToGlobalStiffness(PETSC_STRUCT* obj, std::vector<int>&equation_numbers_in_elements, const int element_number){
-    PetscErrorCode ierr;
+    
     for(int i=0;i<Constants::kNumOfNodesInElement_;i++){
         for(int j=0;j<Constants::kNumOfNodesInElement_;j++){
             int row_equation_number=equation_numbers_in_elements[i+element_number*Constants::kNumOfNodesInElement_];
             int column_equation_number=equation_numbers_in_elements[j+element_number*Constants::kNumOfNodesInElement_];
-            if(row_equation_number>=0 && column_equation_number>=0){
-            //            if(row_equation_number>=0 && column_equation_number>=0 && column_equation_number<=row_equation_number){
+            if(row_equation_number>=0 && column_equation_number>=0 && column_equation_number<=row_equation_number){
                 // first add this item to stiffness_matrix for constructing the rhs later.
-                // Note here, the term added up stiffness matrix is forced to take a negative sign. This is because we want to subtract stiffness_matrix(original) * current_temperature_field from rhs, but PETsc function MatMultAdd() can only do addition operation.
-                ierr = MatSetValue(obj->stiffness_matrix,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)(-element_stiffness_matrix_[i][j]), ADD_VALUES);
+                PetscErrorCode ierr = MatSetValue(obj->stiffness_matrix,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)(element_stiffness_matrix_[i][j]), ADD_VALUES);
                 //  also, we need to add this directly to the Amat.
-                ierr = MatSetValue(obj->Amat,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)(element_stiffness_matrix_[i][j]), ADD_VALUES);
+                PetscErrorCode ierr = MatSetValue(obj->Amat,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)(element_stiffness_matrix_[i][j]), ADD_VALUES);
                 /*
                 int position_in_desparsed_matrix=accumulative_half_band_width_vector[row_equation_number]-(row_equation_number-column_equation_number);
                 stiffness_matrix[position_in_desparsed_matrix] += element_stiffness_matrix_[i][j];
@@ -1487,6 +1464,152 @@ void ElementalStiffnessMatrix::PrintStiffnessMatrix(std::vector<double>&stiffnes
     printf("stiffness_matrix[%d] = %f\n", i, stiffness_matrix[i]);
 }
 */
+
+void ElementalMatrix::set_element_mass_matrix(const int element_number, std::vector<int>&nodes_in_elements, std::vector<int>& material_id_of_elements, std::vector<double>& current_temperature_field, TemperatureDependentVariables *const temperature_dependent_variables, std::vector<double> &densities, const double time_increment){
+    //----------------integration rule------------------
+    int num_of_integration_points = 3;
+    double coordinates_of_integration_points[3]={-0.7745966692, 0, 0.7745966692}; //gaussian quadrature coordinates
+    double weights_of_integration_points[3]={0.5555555555, 0.8888888888, 0.5555555555};//weight of gaussian point
+    
+    //---------zero out element K   matrix--------------
+    for(int i=0;i<Constants::kNumOfNodesInElement_;i++){
+        for(int j=0;j<Constants::kNumOfNodesInElement_;j++){
+            element_mass_matrix_[i][j]=0.0;
+        }
+    }
+    
+    for(int i=0;i<Constants::kNumOfNodesInElement_;i++){
+        for(int j=0;j<Constants::kNumOfNodesInElement_;j++){
+            for(int k=0;k<num_of_integration_points;k++){
+                double ksi_coordinate = coordinates_of_integration_points[k];  //gaussian piont coordinate
+                double ksi_weight = weights_of_integration_points[k];    //weight of gaussian quadrature
+                
+                for(int l=0;l<num_of_integration_points;l++){
+                    double eta_coordinate = coordinates_of_integration_points[l];
+                    double eta_weight = weights_of_integration_points[l];
+                    
+                    set_shape_function(ksi_coordinate, eta_coordinate);
+                    set_shape_function_derivatives(ksi_coordinate, eta_coordinate);
+                    set_determinant_of_jacobian_matrix();
+                    
+                    double temperature = 0.0;
+                    for(int ii=0;ii<Constants::kNumOfNodesInElement_;ii++){
+                        temperature += current_temperature_field[(nodes_in_elements[ii+element_number*4])]*shape_function_[ii];
+                    }
+                    
+                    double density = densities[material_id_of_elements[element_number]];
+                    
+                    element_mass_matrix_[i][j] +=
+                    (*temperature_dependent_variables).get_specific_heat(element_number, temperature, material_id_of_elements)*density
+                    /time_increment*shape_function_[i]*shape_function_[j]*determinant_of_jacobian_matrix_*ksi_weight*eta_weight;;
+                }
+            }
+        }
+    }
+}
+/*
+void ElementalMatrix::MapElementalToGlobalMass(std::vector<double>&mass_matrix, std::vector<int>&equation_numbers_in_elements, const int element_number){
+    for(int i=0;i<Constants::kNumOfNodesInElement_;i++){
+        for(int j=0;j<Constants::kNumOfNodesInElement_;j++){
+            int row_equation_number=equation_numbers_in_elements[i+element_number*Constants::kNumOfNodesInElement_];
+            int column_equation_number=equation_numbers_in_elements[j+element_number*Constants::kNumOfNodesInElement_];
+            if(row_equation_number>=0 && column_equation_number>=0 && column_equation_number<=row_equation_number){
+                PetscErrorCode ierr = MatSetValue(obj->mass_matrix,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)(element_mass_matrix_[row_equation_number][column_equation_number]), ADD_VALUES);
+                
+//                int position_in_desparsed_matrix=accumulative_half_band_width_vector[row_equation_number]-(row_equation_number-column_equation_number);
+//                mass_matrix[position_in_desparsed_matrix] += element_mass_matrix_[i][j];
+                
+            }
+        }
+    }
+    //printf("map to global stiffness matrix completed\n");
+}
+
+void ElementalMatrix::PrintMassMatrix(int size_of_desparsed_stiffness_matrix, std::vector<double>& mass_matrix){
+    for(int i=0; i<size_of_desparsed_stiffness_matrix; i++)
+    printf("mass_matrix[%d] = %f\n", i, mass_matrix[i]);
+}
+*/
+
+class ElementalBodyHeatFluxTangentialMatrix:public MappingShapeFunctionAndDerivatives{
+public:
+    void InitializeElementalBodyHeatFluxTangentialMatrix();
+    void set_element_body_heat_flux_tangential_matrix(int, int, std::vector<int>&, std::vector<double>&, TemperatureDependentVariables*const,
+                                                      Initialization*const);
+    void MapElementalToGlobalBodyHeatFluxTangentialMatrix(std::vector<double>&, std::vector<int>&,std::vector<int>&, int);
+    void PrintBodyHeatFluxTangentialMatrix(std::vector<double>&);
+    
+private:
+    std::vector<std::vector<double> > element_body_heat_flux_tangential_matrix_;
+};
+void ElementalBodyHeatFluxTangentialMatrix::InitializeElementalBodyHeatFluxTangentialMatrix(){
+    element_body_heat_flux_tangential_matrix_.resize(Constants::kNumOfNodesInElement_);
+    for(int i=0;i<Constants::kNumOfNodesInElement_;i++){
+        element_body_heat_flux_tangential_matrix_[i].resize(Constants::kNumOfNodesInElement_,0.0);
+    }
+    InitializeMappingShapeFunctionAndDerivatives();
+}
+
+void ElementalBodyHeatFluxTangentialMatrix::set_element_body_heat_flux_tangential_matrix(const int element_number, const int heater_element_number, std::vector<int>&nodes_in_elements, std::vector<double>& current_temperature_field, TemperatureDependentVariables *const temperature_dependent_variables,Initialization *const initialization){
+    int heater_number=heater_element_number/(*((*initialization).get_mesh_parameters())).get_mesh_seeds_on_heater();
+    double current=(*((*initialization).get_currents_in_heater())).get_current_in_heater()[heater_number];
+    
+    //integration rule
+    int num_of_integration_points=2;
+    double coordinates_of_integration_points[2]={-0.57735026, 0.57735026}; //gaussian quadrature coordinates
+    double weights_of_integration_points[2]={1.0, 1.0};//weight of gaussian point
+    
+    //---------zero out element tangential body heat flux matrix--------------
+    for(int i=0;i<Constants::kNumOfNodesInElement_;i++)
+    for(int j=0;j<Constants::kNumOfNodesInElement_;j++)
+    element_body_heat_flux_tangential_matrix_[i][j]=0.0;
+    
+    //---------------------------------
+    for(int i=0;i<Constants::kNumOfNodesInElement_;i++){
+        for(int j=0;j<Constants::kNumOfNodesInElement_;j++){
+            
+            for(int k=0;k<num_of_integration_points;k++){
+                double ksi_coordinate=coordinates_of_integration_points[k];  //gaussian piont coordinate
+                double ksi_weight=weights_of_integration_points[k];    //weight of gaussian quadrature
+                for(int l=0;l<num_of_integration_points;l++){
+                    double eta_coordinate=coordinates_of_integration_points[l];
+                    double eta_weight=weights_of_integration_points[l];
+                    
+                    set_shape_function(ksi_coordinate, eta_coordinate);
+                    set_shape_function_derivatives(ksi_coordinate, eta_coordinate);
+                    set_determinant_of_jacobian_matrix();
+                    
+                    double temperature=0.0;
+                    for(int ii=0;ii<Constants::kNumOfNodesInElement_;ii++)
+                    temperature += current_temperature_field[(nodes_in_elements[ii+element_number*4])]*shape_function_[ii];
+                    
+                    element_body_heat_flux_tangential_matrix_[i][j] += (*temperature_dependent_variables).get_body_heat_flux_derivative
+                    (temperature,current)*shape_function_[i]*shape_function_[j]*determinant_of_jacobian_matrix_*ksi_weight*eta_weight;
+                }
+            }
+        }
+    }
+}
+
+void ElementalBodyHeatFluxTangentialMatrix::MapElementalToGlobalBodyHeatFluxTangentialMatrix(std::vector<double>&body_heat_flux_tangential_matrix,std::vector<int>&accumulative_half_band_width_vector,std::vector<int>&equation_numbers_in_elements, const int element_number){
+    for(int i=0;i<Constants::kNumOfNodesInElement_;i++){
+        for(int j=0;j<Constants::kNumOfNodesInElement_;j++){
+            int row_equation_number=equation_numbers_in_elements[i+element_number*Constants::kNumOfNodesInElement_];
+            int column_equation_number=equation_numbers_in_elements[j+element_number*Constants::kNumOfNodesInElement_];
+            if(row_equation_number>=0 && column_equation_number>=0 && column_equation_number<=row_equation_number){
+                int position_in_desparsed_matrix=accumulative_half_band_width_vector[row_equation_number]-(row_equation_number-column_equation_number);
+                body_heat_flux_tangential_matrix[position_in_desparsed_matrix] += element_body_heat_flux_tangential_matrix_[i][j];
+            }
+        }
+    }
+    //printf("map to global stiffness matrix completed\n");
+}
+
+void ElementalBodyHeatFluxTangentialMatrix::PrintBodyHeatFluxTangentialMatrix(std::vector<double>& body_heat_flux_tangential_matrix){
+    int size_of_desparsed_stiffness_matrix = body_heat_flux_tangential_matrix.size();
+    for(int i=0; i<size_of_desparsed_stiffness_matrix; i++)
+    printf("body_heat_flux_tangential_matrix[%d] = %f\n", i, body_heat_flux_tangential_matrix[i]);
+}
 
 class ElementalRadiationTangentialMatrixAndRadiationLoad: public IntegrationOverEdge{
 public:
@@ -1539,12 +1662,11 @@ void ElementalRadiationTangentialMatrixAndRadiationLoad::set_element_radiation_t
         double temperature_cube=pow(temperature,3);
         double temperature_quartic=pow(temperature,4);
         
-        double constant_a = Constants::kStefanBoltzmann_*(*temperature_dependent_variables).get_emissivity(temperature);
-//        double constant_a_derivative=Constants::kStefanBoltzmann_*(*temperature_dependent_variables).get_emissivity_derivative(temperature);
+        double constant_a=Constants::kStefanBoltzmann_*(*temperature_dependent_variables).get_emissivity(temperature);
+        double constant_a_derivative=Constants::kStefanBoltzmann_*(*temperature_dependent_variables).get_emissivity_derivative(temperature);
         
-//        double coefficient=4*constant_a*temperature_cube+constant_a_derivative*temperature_quartic;
-        double coefficient = 4*constant_a*temperature_cube;
-      
+        double coefficient=4*constant_a*temperature_cube+constant_a_derivative*temperature_quartic;
+        
         //note that body heat flux and radiation heat flux are of OPPSITE sign! one increases temperature, while the other one drecreases it.
         element_radiation_tangential_matrix_[2][2]+=coefficient*shape_function_[0]*shape_function_[0]*determinant_of_jacobian_matrix_*ksi_weight;
         element_radiation_tangential_matrix_[2][3]+=coefficient*shape_function_[0]*shape_function_[1]*determinant_of_jacobian_matrix_*ksi_weight;
@@ -1561,13 +1683,11 @@ void ElementalRadiationTangentialMatrixAndRadiationLoad::set_element_radiation_t
 
 
 void ElementalRadiationTangentialMatrixAndRadiationLoad::MapElementalToGlobalRadiationTangentialMatrixAndRadiationLoad(PETSC_STRUCT* obj, std::vector<int>&equation_numbers_in_elements, const int element_number){
-    PetscErrorCode ierr;
     for(int i=0;i<Constants::kNumOfNodesInElement_;i++){
         for(int j=0;j<Constants::kNumOfNodesInElement_;j++){
             int row_equation_number=equation_numbers_in_elements[i+element_number*Constants::kNumOfNodesInElement_];
             int column_equation_number=equation_numbers_in_elements[j+element_number*Constants::kNumOfNodesInElement_];
-            if(row_equation_number>=0 && column_equation_number>=0){
-//            if(row_equation_number>=0 && column_equation_number>=0 && column_equation_number<=row_equation_number){
+            if(row_equation_number>=0 && column_equation_number>=0 && column_equation_number<=row_equation_number){
                 
                 PetscErrorCode ierr = MatSetValue(obj->Amat,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)(element_radiation_tangential_matrix_[i][j]), ADD_VALUES);
                 /*
@@ -1578,8 +1698,8 @@ void ElementalRadiationTangentialMatrixAndRadiationLoad::MapElementalToGlobalRad
         }
     }
     //map to radiation load
-    ierr = VecSetValue(obj->rhs,(PetscInt)(equation_numbers_in_elements[element_number*Constants::kNumOfNodesInElement_+2]), (PetscScalar)(-local_radiation_load[0]), ADD_VALUES);
-    ierr = VecSetValue(obj->rhs,(PetscInt)(equation_numbers_in_elements[element_number*Constants::kNumOfNodesInElement_+3]), (PetscScalar)(-local_radiation_load[1]), ADD_VALUES);
+    PetscErrorCode ierr = VecSetValue(obj->rhs,(PetscInt)(equation_numbers_in_elements[element_number*Constants::kNumOfNodesInElement_+2]), (PetscScalar)(local_radiation_load[0]), ADD_VALUES);
+    PetscErrorCode ierr = VecSetValue(obj->rhs,(PetscInt)(equation_numbers_in_elements[element_number*Constants::kNumOfNodesInElement_+3]), (PetscScalar)(local_radiation_load[1]), ADD_VALUES);
     /*
     radiation_load[equation_numbers_in_elements[element_number*Constants::kNumOfNodesInElement_+2]] += local_radiation_load[0];
     radiation_load[equation_numbers_in_elements[element_number*Constants::kNumOfNodesInElement_+3]] += local_radiation_load[1];
@@ -1597,31 +1717,348 @@ void ElementalRadiationTangentialMatrixAndRadiationLoad::PrintRadiationTangentia
     printf("radiation_load[%d] = %f\n", i, radiation_load[i]);
 }
 
+ /*
+class GlobalVectorsAndMatrices{
+public:
+    void InitializeGlobalVectorsAndMatrices(int, std::vector<int>&);
+    std::vector<double>& get_stiffness_matrix()
+    {return stiffness_matrix_;}
+    std::vector<double>& get_mass_matrix()
+    {return mass_matrix_;}
+    std::vector<double>& get_radiation_tangential_matrix()
+    {return radiation_tangential_matrix_;}
+    std::vector<double>& get_body_heat_flux_tangential()
+    {return body_heat_flux_tangential_matrix_;}
+    std::vector<double>& get_heat_load()
+    {return heat_load_;}
+    std::vector<double>& get_radiation_load()
+    {return radiation_load_;}
+    std::vector<double>& get_current_temperature_field()
+    {return current_temperature_field_;}
+    std::vector<double>& get_right_hand_side_function()
+    {return right_hand_side_function_;}
+    std::vector<double>& get_jacobian_matrix_global()
+    {return jacobian_matrix_global_;}
+    std::vector<double>& get_solution_increments_trial()
+    {return solution_increments_trial_;}
+    std::vector<double>& get_initial_temperature_field()
+    {return initial_temperature_field_;}
+    std::vector<double>& get_solution_of_last_iteration()
+    {return solution_of_last_iteration_;}
+    void PrintGlobalVectorsAndMatrices(){
+        for(int i=0;i<stiffness_matrix_.size();i++)
+        printf("stffness_matrix_[%d] = %f\n", i, stiffness_matrix_[i]);
+    }
+    double UseIndexToSearchDoubleSymmetricMatrix(std::vector<double>*, int, int);
+    double UseIndexToSearchDoubleAsymmetricMatrix(std::vector<double>*, std::vector<double>*, int, int);
+    double StiffnessMatrixIndex(int, int);
+    double MassMatrixIndex(int, int);
+    double RadiationTangentialMatrixIndex(int, int);
+    double BodyHeatFluxTangentialMatrixIndex(int, int);
+    double JacobianMatrixIndex(int, int);
+    int ModifyJacobianMatrixIndex(int, int, double);
+    void ZeroVectorAndMatrix();
+    
+private:
+    std::vector<double> stiffness_matrix_;
+    std::vector<double> mass_matrix_;
+    std::vector<double> radiation_tangential_matrix_;
+    std::vector<double> body_heat_flux_tangential_matrix_;
+    std::vector<double> heat_load_;
+    std::vector<double> radiation_load_;
+    std::vector<double> current_temperature_field_;
+    std::vector<double> right_hand_side_function_; //dGlobalyfunc
+    std::vector<double> jacobian_matrix_global_;
+    std::vector<double> solution_increments_trial_;//dIterstep
+    std::vector<double> initial_temperature_field_;
+    std::vector<double> solution_of_last_iteration_;
+    std::vector<int> accumulative_half_band_width_vector_;
+    int num_of_nodes_;
+    int num_of_equations_;
+};
+void GlobalVectorsAndMatrices::InitializeGlobalVectorsAndMatrices(const int num_of_nodes, std::vector<int>&accumulative_half_band_width_vector){
+    int num_of_equations = accumulative_half_band_width_vector.size();
+    int size_of_desparsed_stiffness_matrix = accumulative_half_band_width_vector[num_of_equations-1]+1;
+    stiffness_matrix_.resize(size_of_desparsed_stiffness_matrix, 0.0);
+    mass_matrix_.resize(size_of_desparsed_stiffness_matrix, 0.0);
+    radiation_tangential_matrix_.resize(size_of_desparsed_stiffness_matrix, 0.0);
+    body_heat_flux_tangential_matrix_.resize(size_of_desparsed_stiffness_matrix, 0.0);
+    jacobian_matrix_global_.resize(size_of_desparsed_stiffness_matrix, 0.0);
+    heat_load_.resize(num_of_equations, 0.0);
+    radiation_load_.resize(num_of_equations, 0.0);
+    right_hand_side_function_.resize(num_of_equations, 0.0);
+    solution_increments_trial_.resize(num_of_equations, 0.0);
+    solution_of_last_iteration_.resize(num_of_equations, 0.0);
+    initial_temperature_field_.resize(num_of_nodes, 0.0);
+    current_temperature_field_.resize(num_of_nodes, 0.0);
+    accumulative_half_band_width_vector_ = accumulative_half_band_width_vector;
+    num_of_nodes_=num_of_nodes;
+    num_of_equations_=num_of_equations;
+}
+
+double GlobalVectorsAndMatrices::UseIndexToSearchDoubleSymmetricMatrix(std::vector<double>* desparsed_matrix, int i, int j){
+    int first_column;
+    double return_value;
+    if(j<num_of_equations_){
+        if(j>i){int temporary_variable=i; i=j; j=temporary_variable;}
+        
+        if(i==0)  first_column=0;
+        else first_column=i-(accumulative_half_band_width_vector_[i]-accumulative_half_band_width_vector_[i-1])+1;  //the column number of the 1st nonezero component in i row (all 0 indexed)
+        
+        if(j<first_column) return_value = 0.0;
+        else{
+            int ij=accumulative_half_band_width_vector_[i]-(i-j);
+            return_value = (*desparsed_matrix)[ij];
+        }
+    }
+    else if(j==num_of_equations_) return_value = right_hand_side_function_[i];
+    return return_value;
+}
+
+int GlobalVectorsAndMatrices::ModifyJacobianMatrixIndex(int i, int j, double new_value){
+    int first_column;
+    if(j>i && j!=num_of_equations_){//upper triangular part  j must greater than or equal to 1
+        double ij=j;
+        j=i;
+        i=ij;
+    }
+    
+    if(j<=i){//lower triangular part
+        if(i==0)  first_column=0;
+        else  first_column=i-(accumulative_half_band_width_vector_[i]-accumulative_half_band_width_vector_[i-1])+1;  //the column number of the 1st nonezero component in i row (all 0 indexed)
+        if(j<first_column && new_value!=0.0) return 1;
+        if(j>=first_column){
+            int ij=accumulative_half_band_width_vector_[i]-(i-j);
+            jacobian_matrix_global_[ij]=new_value;
+        }
+    }
+    
+    else if(j==num_of_equations_){
+        right_hand_side_function_[i]=new_value;
+    }
+    return 0;
+}
+
+double GlobalVectorsAndMatrices::StiffnessMatrixIndex(const int i, const int j){
+    return UseIndexToSearchDoubleSymmetricMatrix(&stiffness_matrix_, i, j);
+}
+
+double GlobalVectorsAndMatrices::MassMatrixIndex(const int i, const int j){
+    return UseIndexToSearchDoubleSymmetricMatrix(&mass_matrix_, i, j);
+}
+
+double GlobalVectorsAndMatrices::RadiationTangentialMatrixIndex(const int i, const int j){
+    return UseIndexToSearchDoubleSymmetricMatrix(&radiation_tangential_matrix_, i, j);
+}
+
+double GlobalVectorsAndMatrices::BodyHeatFluxTangentialMatrixIndex(const int i, const int j){
+    return UseIndexToSearchDoubleSymmetricMatrix(&body_heat_flux_tangential_matrix_, i, j);
+}
+
+double GlobalVectorsAndMatrices::JacobianMatrixIndex(const int i, const int j){
+    return UseIndexToSearchDoubleSymmetricMatrix(&jacobian_matrix_global_, i, j);
+}
+
+void GlobalVectorsAndMatrices::ZeroVectorAndMatrix(){
+    for(int i=0; i<stiffness_matrix_.size(); i++){
+        stiffness_matrix_[i]=0.0;
+        mass_matrix_[i]=0.0;
+        radiation_tangential_matrix_[i]=0.0;
+        body_heat_flux_tangential_matrix_[i]=0.0;
+        jacobian_matrix_global_[i]=0.0;
+    }
+    for(int i=0; i<heat_load_.size(); i++){
+        heat_load_[i]=0.0;
+        radiation_load_[i]=0.0;
+        right_hand_side_function_[i]=0.0;
+    }
+}
+*/
+
+class Assemble{
+public:
+    void AssembleGlobalJacobian(GlobalVectorsAndMatrices*);
+    void AssembleGlobalYfunction(std::vector<int>&, GlobalVectorsAndMatrices*, PETSC_STRUCT*);
+    void PrintGlobalJacobian(GlobalVectorsAndMatrices*);
+    void PrintGlobalYfunction(GlobalVectorsAndMatrices*);
+};
+void Assemble::AssembleGlobalJacobian(GlobalVectorsAndMatrices* global_vectors_and_matrices){
+    int size_of_desparsed_matrix = ((*global_vectors_and_matrices).get_jacobian_matrix_global()).size();
+    for(int i=0; i<size_of_desparsed_matrix; i++){
+        (*global_vectors_and_matrices).get_jacobian_matrix_global()[i] = (*global_vectors_and_matrices).get_mass_matrix()[i]
+        +(*global_vectors_and_matrices).get_stiffness_matrix()[i]
+        +(*global_vectors_and_matrices).get_radiation_tangential_matrix()[i]
+        +(*global_vectors_and_matrices).get_body_heat_flux_tangential()[i];
+    }
+}
+
+void Assemble::AssembleGlobalYfunction(std::vector<int>& equation_numbers_of_nodes, GlobalVectorsAndMatrices* global_vectors_and_matrices, PETSC_STRUCT *obj){
+    int num_of_nodes=equation_numbers_of_nodes.size();
+    int row_equation_number=-1;
+    int column_equation_number=-1;
+    double term_one=0.0;
+    double term_two=0.0;
+    
+    
+    for(int i=0;i<num_of_nodes;i++){
+        term_one=0.0;
+        term_two=0.0;
+        for(int j=0;j<num_of_nodes;j++){
+            row_equation_number=equation_numbers_of_nodes[i];
+            column_equation_number=equation_numbers_of_nodes[j];
+            if(row_equation_number>=0 && column_equation_number>=0){
+                term_one += (*global_vectors_and_matrices).MassMatrixIndex(row_equation_number,column_equation_number)*
+                ((*global_vectors_and_matrices).get_current_temperature_field()[j]
+                 -(*global_vectors_and_matrices).get_initial_temperature_field()[j]);
+                term_two += ((*global_vectors_and_matrices).StiffnessMatrixIndex(row_equation_number,column_equation_number))*
+                ((*global_vectors_and_matrices).get_current_temperature_field()[j]);
+                
+                // put (*global_vectors_and_matrices).JacobianMatrixIndex(i,j) into PETSC matrix
+                double add_term = (*global_vectors_and_matrices).JacobianMatrixIndex(row_equation_number, column_equation_number);
+                PetscErrorCode ierr = MatSetValue(obj->Amat,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)add_term, ADD_VALUES);
+            }
+        }
+        
+        if(row_equation_number>=0 && column_equation_number>=0){
+            (*global_vectors_and_matrices).get_right_hand_side_function()[row_equation_number]=
+            ((*global_vectors_and_matrices).get_heat_load()[row_equation_number]) -
+            ((*global_vectors_and_matrices).get_radiation_load()[row_equation_number])-term_one-term_two;
+
+            // put right_hand_side_function()[row_equation_number] into PETSC vector rhs
+            double add_term = (*global_vectors_and_matrices).get_right_hand_side_function()[row_equation_number];
+            ierr = VecSetValue(obj->rhs,(PetscInt)row_equation_number,(PetscScalar)add_term, ADD_VALUES);
+        }
+    }
+    //printf("Generating R.H.S global function completed\n");
+}
+
+void Assemble::PrintGlobalJacobian(GlobalVectorsAndMatrices* global_vectors_and_matrices){
+    int num_of_equations = ((*global_vectors_and_matrices).get_right_hand_side_function()).size();
+    for(int i=0; i<num_of_equations; i++)
+        for(int j=0; j<num_of_equations; j++)
+            printf("JacobianMatrixIndex(%d,%d) = %f\n", i, j, (*global_vectors_and_matrices).JacobianMatrixIndex(i,j));
+}
+
+void Assemble::PrintGlobalYfunction(GlobalVectorsAndMatrices* global_vectors_and_matrices){
+    int num_of_equations = ((*global_vectors_and_matrices).get_right_hand_side_function()).size();
+    for(int i=0; i<num_of_equations; i++)
+    printf("Heat load(%d) = %-12.6f   Radiation load(%d) = %-12.6f   GlobalYfunction(%d) = %-12.6f\n", i, (*global_vectors_and_matrices).get_heat_load()[i], i, (*global_vectors_and_matrices).get_radiation_load()[i], i, (*global_vectors_and_matrices).get_right_hand_side_function()[i]);
+}
+
+
 class Iterations{
 public:
+    double NormOfVector(std::vector<double>&);
     void ZeroVectorAndMatrix(PETSC_STRUCT*);
+//    double NormOfVector(PETSC_VEC&, int);
+//    int LinearEquationsSolver(GlobalVectorsAndMatrices *);
 };
-void Iterations::ZeroVectorAndMatrix(PETSC_STRUCT* obj){
-    PetscErrorCode ierr;
-    ierr = MatZeroEntries(obj->Amat);
-    ierr = MatZeroEntries(obj->stiffness_matrix);
-    
-    ierr = VecZeroEntries(obj->rhs);
-//    ierr = VecZeroEntries(obj->current_temperature_field_local);
+double Iterations::NormOfVector(std::vector<double>& vector_to_be_evaluated){
+    double return_value=0.0;
+    double summation_over_squred_components=0.0;
+    for(int i=0; i<vector_to_be_evaluated.size(); i++)
+    summation_over_squred_components += (vector_to_be_evaluated[i])*(vector_to_be_evaluated[i]);
+    return_value=(pow(summation_over_squred_components,0.5));
+    return return_value;
 }
+
+void Iterations::ZeroVectorAndMatrix(PETSC_STRUCT* obj){
+    PetscErrorCode ierr = MatZeroEntries(obj->Amat);
+    PetscErrorCode ierr = MatZeroEntries(obj->stiffness_matrix);
+    
+    PetscErrorCode ierr = VecZeroEntries(obj->rhs);
+
+/*
+    for(int i=0; i<stiffness_matrix_.size(); i++){
+        stiffness_matrix_[i]=0.0;
+        mass_matrix_[i]=0.0;
+        radiation_tangential_matrix_[i]=0.0;
+        body_heat_flux_tangential_matrix_[i]=0.0;
+        jacobian_matrix_global_[i]=0.0;
+    }
+    for(int i=0; i<heat_load_.size(); i++){
+        heat_load_[i]=0.0;
+        radiation_load_[i]=0.0;
+        right_hand_side_function_[i]=0.0;
+    }
+*/
+}
+
+/*
+double Solver::NormOfVector(PETSC_VEC& vector_to_be_evaluated, int number_of_equations){
+    double return_value=0.0;
+    double summation_over_squred_components=0.0;
+    for(int i=0; i<number_of_equations; i++)
+        summation_over_squred_components += (double(vector_to_be_evaluated[i]))*(double(vector_to_be_evaluated[i]));
+    return_value=(pow(summation_over_squred_components,0.5));
+    return return_value;
+}
+*/
+/*
+int Solver::LinearEquationsSolver(GlobalVectorsAndMatrices *global_vectors_and_matrices){
+    //use LinearEquationsSolver to solve equations
+    int num_of_equations = ((*global_vectors_and_matrices).get_right_hand_side_function()).size();
+    double temporary_variable, new_value;
+    //   decomposition
+    for(int k=0; k<num_of_equations; k++){
+        temporary_variable = 0.0;
+        for(int i=0; i<k; i++){
+            temporary_variable += (((*global_vectors_and_matrices).JacobianMatrixIndex(i,k))*
+                                   ((*global_vectors_and_matrices).JacobianMatrixIndex(i,k)));
+        }
+        new_value=(double)sqrt( ((*global_vectors_and_matrices).JacobianMatrixIndex(k,k)) - temporary_variable);
+        if(((*global_vectors_and_matrices).ModifyJacobianMatrixIndex(k,k,new_value))) return 1;
+        for(int i=k+1; i<num_of_equations+1; i++){
+            temporary_variable = 0.0;
+            for(int j=0; j<k; j++){
+                temporary_variable += ((*global_vectors_and_matrices).JacobianMatrixIndex(j,k))
+                *((*global_vectors_and_matrices).JacobianMatrixIndex(j,i));
+            }
+            new_value= (((*global_vectors_and_matrices).JacobianMatrixIndex(k,i))-temporary_variable)
+            /((*global_vectors_and_matrices).JacobianMatrixIndex(k,k));
+            if(((*global_vectors_and_matrices).ModifyJacobianMatrixIndex(k,i,new_value))) return 1;
+        }
+    }
+    
+    //  back substitution
+    new_value= ((*global_vectors_and_matrices).JacobianMatrixIndex(num_of_equations-1,num_of_equations))
+    /((*global_vectors_and_matrices).JacobianMatrixIndex(num_of_equations-1,num_of_equations-1));
+    if(((*global_vectors_and_matrices).ModifyJacobianMatrixIndex(num_of_equations-1,num_of_equations,new_value))) return 1;
+    
+    for(int k=num_of_equations-2; k>=0; k--){
+        temporary_variable = 0;
+        for(int i=k+1; i<num_of_equations; i++){
+            temporary_variable +=  ((*global_vectors_and_matrices).JacobianMatrixIndex(k,i))
+            *((*global_vectors_and_matrices).JacobianMatrixIndex(i,num_of_equations));
+        }
+        
+        new_value=(((*global_vectors_and_matrices).JacobianMatrixIndex(k,num_of_equations)) - temporary_variable)
+        /((*global_vectors_and_matrices).JacobianMatrixIndex(k,k));
+        if(((*global_vectors_and_matrices).ModifyJacobianMatrixIndex(k,num_of_equations,new_value))) return 1;
+    }
+    
+    //  store temp into solution_of_last_iteration vector/
+    for(int i=0; i<num_of_equations; i++){
+        (*global_vectors_and_matrices).get_solution_of_last_iteration()[i]=((*global_vectors_and_matrices).JacobianMatrixIndex(i,num_of_equations));
+    }
+    
+    //  printf("Solving linear equations completed......\n");
+    return 0;
+}
+*/
 
 class OutputResults{
 public:
-    void OutputVtkFile(Initialization*, GenerateMesh*, std::vector<double>&);
-    void OutputCopperSurfaceTemperature(Initialization*, GenerateMesh*, std::vector<double>&);
+    void OutputVtkFile(int, double, Initialization*, GenerateMesh*, std::vector<double>&);
+    void OutputCopperSurfaceTemperature(int, double, Initialization*, GenerateMesh*, std::vector<double>&);
 };
-void OutputResults::OutputVtkFile(Initialization *const initialization, GenerateMesh *const generate_mesh, std::vector<double>& current_temperature_field){
+void OutputResults::OutputVtkFile(const int time_step, const double current_time, Initialization *const initialization, GenerateMesh *const generate_mesh, std::vector<double>& initial_temperature_field){
     int num_of_nodes=(*((*initialization).get_mesh_parameters())).get_num_of_nodes();
     int dimensions_of_x=(*((*initialization).get_mesh_parameters())).get_dimensions_of_x();
     int dimensions_of_y=(*((*initialization).get_mesh_parameters())).get_dimensions_of_y();
     
-    char buffer[30];
-    sprintf(buffer, "ModelTemperature.vtk");
+    char buffer[20];
+    sprintf(buffer, "step_%d.vtk", time_step+1);
     char *filename = buffer;
     FILE *output_vtk_file;
     output_vtk_file = fopen(filename,"w"); //analysis results stored in Output.txt
@@ -1631,7 +2068,7 @@ void OutputResults::OutputVtkFile(Initialization *const initialization, Generate
     }
     //  printf("open Output file succeeded\n");
     fprintf(output_vtk_file,"# vtk DataFile Version 2.0\n");
-    fprintf(output_vtk_file,"Model Temperature\n");
+    fprintf(output_vtk_file,"current time is %f\n", current_time);
     fprintf(output_vtk_file,"ASCII\n");
     fprintf(output_vtk_file,"DATASET STRUCTURED_GRID\n"); 
     fprintf(output_vtk_file,"DIMENSIONS %d %d 1\n", dimensions_of_x,dimensions_of_y); 
@@ -1643,13 +2080,13 @@ void OutputResults::OutputVtkFile(Initialization *const initialization, Generate
     fprintf(output_vtk_file, "SCALARS temperature double\n");
     fprintf(output_vtk_file, "LOOKUP_TABLE default\n");
     for(int j=0;j<num_of_nodes;j++){
-        fprintf(output_vtk_file,"%.8f\n", current_temperature_field[j]);
+        fprintf(output_vtk_file,"%.8f\n",initial_temperature_field[j]);
     }
     fclose(output_vtk_file);
     printf("writing to vtk file completed......\n");
 }
 
-void OutputResults::OutputCopperSurfaceTemperature(Initialization *const initialization, GenerateMesh *const generate_mesh, std::vector<double>& current_temperature_field){
+void OutputResults::OutputCopperSurfaceTemperature(const int time_step, const double current_time, Initialization *const initialization, GenerateMesh *const generate_mesh, std::vector<double>& initial_temperature_field){
     std::vector<std::pair<double,double> > nodes_on_copper_surface;
     int num_of_nodes=(*((*initialization).get_mesh_parameters())).get_num_of_nodes();
     double y_coordinate_of_copper_surface = (*((*initialization).get_model_geometry())).get_thickness_of_csilicon()
@@ -1661,8 +2098,8 @@ void OutputResults::OutputCopperSurfaceTemperature(Initialization *const initial
     double x_right_bound=(*((*initialization).get_model_geometry())).get_length_of_model()-(*((*initialization).get_model_geometry())).get_width_of_end();
     double tolerance=1.0e-5;
     
-    char buffer[30];
-    sprintf(buffer, "SurfaceTemperature.txt");
+    char buffer[20];
+    sprintf(buffer, "plotdata_step_%d.txt", time_step+1);
     char *filename = buffer; 
     FILE *output_copper_surface_temperature;
     output_copper_surface_temperature=fopen(filename,"w"); 
@@ -1677,12 +2114,12 @@ void OutputResults::OutputCopperSurfaceTemperature(Initialization *const initial
            && (*generate_mesh).get_x_coordinates()[j]<x_right_bound+tolerance ){
             double x_coordinate=(*generate_mesh).get_x_coordinates()[j]
             -(*((*initialization).get_model_geometry())).get_width_of_end();
-            double temperature = current_temperature_field[j];
+            double temperature=initial_temperature_field[j];
             nodes_on_copper_surface.push_back(std::make_pair(x_coordinate,temperature));
         }
     } 
     
-    fprintf(output_copper_surface_temperature,"Surface Temperature\n");
+    fprintf(output_copper_surface_temperature,"current time is %f\n", current_time);
     for(int i=0;i<(nodes_on_copper_surface.size()-1);i++){
         for(int j=i+1;j<nodes_on_copper_surface.size();j++){
             if(nodes_on_copper_surface[i].first>nodes_on_copper_surface[j].first){
@@ -1715,18 +2152,16 @@ int main(int argc, char **args) {
     PetscScalar *get;
     PETSC_STRUCT sys;
     VecScatter ctx;
-    PETSC_VEC current_temperature_field_global;
+    PETSC_VEC sol_sequential;
     PetscScalar error_norm = 0.0;
-    PetscScalar rhs_norm = 0.0;
-    PetscInt equation_number_local_start, equation_number_local_end_plus_one, row_local_start, row_local_end_plus_one;
 
     /* Initialize PETSc */
     Petsc_Init(argc, args, help);
 
     if(rank == 0) {
-        printf("\n\n******************************************************************************************\n");
-        printf("*************************** Debugged on PETSC2.3.3 *********************************************\n");
-        printf("********************************************************************************************");
+        printf("\n\n*****************************this code only runs in parallel****************************\n");
+        printf("********************************************************************************************\n");
+        printf("********************************************************************************************\n\n");
         printf("\n\n\t*****Heat Transfer Simulation for Real Time Grain Growth Control of Copper Film*****\n");
         printf("\tThis code is developed for the project 'Real Time Control of Grain Growth in Metals' (NSF reference codes: 024E, 036E, 8022, AMPP)\n\n");
         printf("\tProject Investigators:\n");
@@ -1755,6 +2190,7 @@ int main(int argc, char **args) {
     bool is_heaters_turned_off=false;
     double temperature_norm_last = 0.0;
     double temperature_norm_current = 0.0;
+    std::cout<<"collect input information\n";
     
     //read input data to generate mesh
     GenerateMesh generate_mesh;
@@ -1763,12 +2199,14 @@ int main(int argc, char **args) {
     //  generate_mesh.PrintCoordinatesResults(&initialization);
     std::vector<double> &x_coordinates = generate_mesh.get_x_coordinates();
     std::vector<double> &y_coordinates = generate_mesh.get_y_coordinates();
+    std::cout<<"coordinates collection finished \n";
     
     DegreeOfFreedomAndEquationNumbers dof_and_equation_numbers;
     dof_and_equation_numbers.InitializeDegreeOfFreedomAndEquationNumbers(&initialization);
     dof_and_equation_numbers.set_essential_bc_nodes(&initialization, y_coordinates);
     dof_and_equation_numbers.GenerateNodeAndEquationNumbersInElements(&initialization);
     //  dof_and_equation_numbers.PrintDofAndEquationNumbers(&initialization);
+    std::cout<<"dof information finished \n";
 
     std::vector<int> &nodes_in_elements = dof_and_equation_numbers.get_nodes_in_elements();
     int num_of_essential_bc_nodes = dof_and_equation_numbers.get_num_of_essential_bc_nodes();
@@ -1777,8 +2215,17 @@ int main(int argc, char **args) {
     std::vector<int> &equation_numbers_of_nodes = dof_and_equation_numbers.get_equation_numbers_of_nodes();
     std::vector<int> &equation_numbers_in_elements = dof_and_equation_numbers.get_equation_numbers_in_elements();
   
+    std::cout<<"generating node information finished \n";
     TemperatureDependentVariables temperature_dependent_variables;
     temperature_dependent_variables.InitializeTemperatureDependentVariables(&initialization);
+    
+    /*
+    HalfBandWidth half_band_width;
+    half_band_width.set_accumulative_half_band_width_vector(&initialization, &dof_and_equation_numbers);
+    //  half_band_width.PrintHalfBandWidthInformation(num_of_equations);
+    int size_of_desparsed_stiffness_matrix = half_band_width.get_size_of_desparsed_stiffness_matrix();
+    std::vector<int>&accumulative_half_band_width_vector = half_band_width.get_accumulative_half_band_width_vector();
+    */
     
     BoundaryCondition boundary_condition;
     boundary_condition.InitializeBoundaryCondition(&initialization);
@@ -1831,8 +2278,11 @@ int main(int argc, char **args) {
     std::vector<double>& solution_of_last_iteration = global_vectors_and_matrices.get_solution_of_last_iteration();
     */
     
-    std::vector<double> current_temperature_field;
-    current_temperature_field.resize(num_of_nodes, 0.0);
+    TemperatureFieldInitial temperature_field_initial;
+    temperature_field_initial.set_initial_temperature_field(essential_bc_nodes, sys, &initialization, equation_numbers_of_nodes);
+//    if(rank == 0)
+//        temperature_field_initial.PrintInitialTemperatureField(initial_temperature_field);
+    MPI_Barrier(MPI_COMM_WORLD);
     
     ElementalMatrix elemental_matrix;
     elemental_matrix.InitializeElementalMatrix();
@@ -1842,261 +2292,269 @@ int main(int argc, char **args) {
     ElementalRadiationTangentialMatrixAndRadiationLoad elemental_radiation_tangential_matrix_and_radiation_load;
     elemental_radiation_tangential_matrix_and_radiation_load.InitializeElementalRadiationTangentialMatrixAndRadiationLoad();
     
-//    Assemble assemble;
+    Assemble assemble;
     Iterations iterations;
     OutputResults output_results;
-//    std::cout<<"1111\n";
-//    getchar();
-   
-/*
-    // NOTE current_temperature_field_local does not go back to zero after every iteration
-    ierr = VecCreate(PETSC_COMM_WORLD, &(sys.current_temperature_field_local));
-    ierr = VecSetSizes(sys.current_temperature_field_local, PETSC_DECIDE, num_of_equations);
-    ierr = VecSetFromOptions(sys.current_temperature_field_local);
-*/
+
     /*Create the vectors and matrix we need for PETSc*/
     Vec_Create(&sys,(PetscInt)num_of_equations);
-    //           std::cout<<"vec_creation finished \n";
-    Mat_Create(&sys, (PetscInt)num_of_equations, (PetscInt)num_of_equations);
+    //            std::cout<<"vec_creation finished \n";
+    Mat_Create(&sys,(PetscInt)num_of_equations,(PetscInt)num_of_equations);
     //            std::cout<<"mat_creation finished \n";
-    MPI_Barrier(MPI_COMM_WORLD);
     
-    TemperatureFieldInitial temperature_field_initial;
-    // set the initial temperature field, which is to initialize the current_temperature_field_local and the double vector: current_temperature_field_local
-    temperature_field_initial.set_initial_temperature_field(essential_bc_nodes, current_temperature_field, &sys, &initialization, equation_numbers_of_nodes);
-    MPI_Barrier(MPI_COMM_WORLD);
 
-    // get local ownership range
-    ierr = MatGetOwnershipRange(sys.Amat, &equation_number_local_start, &equation_number_local_end_plus_one);
-    ierr = VecGetOwnershipRange(sys.sol, &row_local_start, &row_local_end_plus_one);
-    
-    PetscInt *d_nnz = new PetscInt[equation_number_local_end_plus_one - equation_number_local_start];
-    PetscInt *o_nnz = new PetscInt[equation_number_local_end_plus_one - equation_number_local_start];
-
-    EachRowNozeroCount each_row_nozero_count;
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    each_row_nozero_count.SetDnnzAndOnnz(&initialization, &dof_and_equation_numbers, (int)equation_number_local_start, (int)equation_number_local_end_plus_one, d_nnz, o_nnz);
-    
-    MPI_Barrier(MPI_COMM_WORLD);
-    // once we have ownership range, we can preallocate memory for the matrices by providing d_nnz and o_nnz
-    Mat_Preallocation(&sys, d_nnz, o_nnz);
-    /*
-    if(rank == 1)
-        std::cout << equation_number_local_start <<" "<<equation_number_local_end_plus_one << "\n";
-    if(rank == 1)
-        std::cout << row_local_start <<" "<< row_local_end_plus_one << "\n";
+    /*  WE DO NOT NEED TRANSIENT STATE ANY MORE
+    for(int time_step=0; current_time<=total_simulation_time; time_step++){
+        if(time_step>=maximum_time_steps){
+            printf("maximum time steps has been reached. simulation aborted\n");
+            Petsc_End();
+            MPI_Finalize();
+            return 0;
+        }
+        
+        for(int i=0; i<current_temperature_field.size(); i++)
+          current_temperature_field[i]=initial_temperature_field[i];  // set initial values to dLastitersolu[]
+ //           ierr = VecDuplicate(sys.initial_temperature_field, &sys.current_temperature_field);
     */
-
-    while(1){ // this while loop governs the iterations to solution
-        
-        ++iteration_number;
-     
-        MPI_Barrier(MPI_COMM_WORLD);
-        
-        for(int element_number=0; element_number < num_of_elements; element_number++) {
-            // check if there is at least one equation number in this element that lives in this processor
-            for (int node_count_inside = 1; node_count_inside < Constants::kNumOfNodesInElement_; node_count_inside++){
-                int equation_count = equation_numbers_in_elements[node_count_inside + element_number*Constants::kNumOfNodesInElement_];
-                if(equation_count >= equation_number_local_start && equation_count < equation_number_local_end_plus_one){
-                
-                    // okay, you are in my land, I have to take care of you
-                    elemental_matrix.set_coordinates_in_this_element(element_number, nodes_in_elements, x_coordinates, y_coordinates);
-                    elemental_matrix.set_element_stiffness_matrix(element_number, nodes_in_elements, material_id_of_elements, current_temperature_field, &temperature_dependent_variables);
-                    elemental_matrix.MapElementalToGlobalStiffness(&sys, equation_numbers_in_elements, element_number);
-                    std::vector<std::vector<double> >&element_stiffness_matrix = elemental_matrix.get_element_stiffness_matrix();
-                    boundary_condition.FixTemperature(element_number, element_stiffness_matrix, equation_numbers_in_elements, &sys);
-                    
-                    // okay, let's go to next element
-                    break; // break from "node_count_inside"
-                }
+        while(1){ // this while loop governs the iterations to solution
+            
+            getchar();
+            Iterations.ZeroVectorAndMatrix();
+            
+            for(int element_number=0; element_number < num_of_elements; element_number++) {
+                elemental_matrix.set_coordinates_in_this_element(element_number, nodes_in_elements, x_coordinates, y_coordinates);
+                elemental_matrix.set_element_stiffness_matrix(element_number, nodes_in_elements, material_id_of_elements, sys, &temperature_dependent_variables);
+                elemental_matrix.MapElementalToGlobalStiffness(sys, accumulative_half_band_width_vector, equation_numbers_in_elements, element_number);
+                std::vector<std::vector<double> >&element_stiffness_matrix = elemental_stiffness_matrix.get_element_stiffness_matrix();
+                boundary_condition.FixTemperature(element_number, element_stiffness_matrix, equation_numbers_in_elements, sys);
             }
-
-        }
-        
-        MPI_Barrier(MPI_COMM_WORLD);
-        
-        for(int heater_element_number=0; heater_element_number < num_of_elements_as_heater; heater_element_number++){
-            int element_number = elements_as_heater[heater_element_number];
             
-            // check if there is at least one equation number in this element that lives in this processor
-            for (int node_count_inside = 1; node_count_inside < Constants::kNumOfNodesInElement_; node_count_inside++){
-                int equation_count = equation_numbers_in_elements[node_count_inside + element_number*Constants::kNumOfNodesInElement_];
-                if(equation_count >= row_local_start && equation_count < row_local_end_plus_one){
-                    
-                    // okay, you are in my land, I have to take care of you
-                    heater_elements.set_coordinates_in_this_element(element_number, nodes_in_elements, x_coordinates, y_coordinates);
-                    heater_elements.HeatSupply(element_number, heater_element_number, &sys, nodes_in_elements, equation_numbers_in_elements, current_temperature_field, &temperature_dependent_variables, &initialization);
-
-                    // okay, let's go to next element
-                    break; // break from "node_count_inside"
-                }
+            for(int heater_element_number=0; heater_element_number < num_of_elements_as_heater; heater_element_number++){
+                int element_number = elements_as_heater[heater_element_number];
+                heater_elements.set_coordinates_in_this_element(element_number, nodes_in_elements, x_coordinates, y_coordinates);
+                heater_elements.HeatSupply(element_number, heater_element_number, sys, nodes_in_elements, equation_numbers_in_elements, current_temperature_field, &temperature_dependent_variables, &initialization);
             }
-        }
-        
-        MPI_Barrier(MPI_COMM_WORLD);
-        
-        //    elemental_body_heat_flux_tangential_matrix.PrintBodyHeatFluxTangentialMatrix(body_heat_flux_tangential_matrix);
-        for(int radiation_element_number=0; radiation_element_number < num_of_elements_with_radiation; radiation_element_number++) {
-            int element_number = elements_with_radiation[radiation_element_number];
             
-            // check if there is at least one equation number in this element that lives in this processor
-            for (int node_count_inside = 1; node_count_inside < Constants::kNumOfNodesInElement_; node_count_inside++){
-                int equation_count = equation_numbers_in_elements[node_count_inside + element_number*Constants::kNumOfNodesInElement_];
-                if(equation_count >= row_local_start && equation_count < row_local_end_plus_one){
-                    
-                    // okay, you are in my land, I have to take care of you
-                    elemental_radiation_tangential_matrix_and_radiation_load.set_element_radiation_tangential_matrix_and_radiation_load(element_number, radiation_element_number, nodes_in_elements, current_temperature_field, &temperature_dependent_variables, x_coordinates, ambient_temperature);
-                    elemental_radiation_tangential_matrix_and_radiation_load.MapElementalToGlobalRadiationTangentialMatrixAndRadiationLoad(&sys, equation_numbers_in_elements, element_number);
-
-                    // okay, let's go to next element
-                    break; // break from "node_count_inside"
-                }
+            //    elemental_body_heat_flux_tangential_matrix.PrintBodyHeatFluxTangentialMatrix(body_heat_flux_tangential_matrix);
+            for(int radiation_element_number=0; radiation_element_number < num_of_elements_with_radiation; radiation_element_number++) {
+                int element_number = elements_with_radiation[radiation_element_number];
+                elemental_radiation_tangential_matrix_and_radiation_load.set_element_radiation_tangential_matrix_and_radiation_load(element_number, radiation_element_number, nodes_in_elements, current_temperature_field, &temperature_dependent_variables, x_coordinates, ambient_temperature);
+                elemental_radiation_tangential_matrix_and_radiation_load.MapElementalToGlobalRadiationTangentialMatrixAndRadiationLoad(sys, equation_numbers_in_elements, element_number);
             }
-        }
-        
-        //      elemental_radiation_tangential_matrix_and_radiation_load.PrintRadiationTangentialMatrixAndRadiationLoad(radiation_tangential_matrix, radiation_load);
-        
-//        std::cout<<"2222\n";
-//        getchar();
-        
-        // assemble the stiffness matrix first, because stiffness matrix will be used to modifiy the rhs
-        MPI_Barrier(MPI_COMM_WORLD);
-        if (iteration_number != 0){
             
-//            ierr = MatAssemblyBegin(sys.stiffness_matrix, MAT_FINAL_ASSEMBLY);
-//            ierr = MatAssemblyEnd(sys.stiffness_matrix, MAT_FINAL_ASSEMBLY);
-            //Indicate same nonzero structure of successive linear system matrices
-//            MatSetOption(sys.stiffness_matrix, MAT_NO_NEW_NONZERO_LOCATIONS);
-            
-            Petsc_Assem_Matrices(&sys);
-//            std::cout<<"3333\n";
-//            getchar();
-            
-            MPI_Barrier(MPI_COMM_WORLD);
-            
-            Petsc_Assem_Vectors(&sys);
-//            std::cout<<"44444\n";
-//            getchar();
-            
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
-//        std::cout<<"55555\n";
-//        getchar();
-      
-        // subtract stiffness_matrix * current_temperature_field from the rhs.
-        // note here the stiffness matrix has already been added a negative sign on every component. This because we need to subtract the stiffness_matrix(original) * current_temperature_field
-        PetscErrorCode ierr = MatMultAdd(sys.stiffness_matrix, sys.current_temperature_field_local, sys.rhs, sys.rhs);
-        
+            //      elemental_radiation_tangential_matrix_and_radiation_load.PrintRadiationTangentialMatrixAndRadiationLoad(radiation_tangential_matrix, radiation_load);
+ 
+            assemble.AssembleGlobalJacobian(&global_vectors_and_matrices);
+            assemble.AssembleGlobalYfunction(equation_numbers_of_nodes, &global_vectors_and_matrices, &sys);
+            //      assemble.PrintGlobalJacobian(&global_vectors_and_matrices);
+            //      assemble.PrintGlobalYfunction(&global_vectors_and_matrices);
+ 
 #ifdef DEBUG
-        //            if(rank == 0)
-        //            std::cout<<"assembly finished\n";
+//            if(rank == 0)
+//            std::cout<<"assembly finished\n";
 #endif
-        MPI_Barrier(MPI_COMM_WORLD);
-
-//        std::cout<<"66666\n";
-//        getchar();
-    
-        /* Call function to do final assembly of PETSc matrix and vectors*/
- //       Petsc_Assem(&sys);
-        
-//        MPI_Barrier(MPI_COMM_WORLD);
-        
-//        if (iteration_number == 1){
-//            //Indicate same nonzero structure of successive linear system matrices
-//            MatSetOption(sys.Amat, MAT_NO_NEW_NONZERO_LOCATIONS);
-//        }
-//        MPI_Barrier(MPI_COMM_WORLD);
-        
-        /* Call function to solve the tri-diagonal syste*/
-        Petsc_Solve(&sys);
-        
-        // calculate the norm of the solution and norm of the rhs.
-        MPI_Barrier(MPI_COMM_WORLD);
-//        std::cout<<"77777\n";
-//        getchar();
-        
-        ierr = VecNorm(sys.sol, NORM_2, &error_norm);
-        ierr = VecNorm(sys.rhs, NORM_2, &rhs_norm);
-        MPI_Barrier(MPI_COMM_WORLD);
-        
-        //            std::cout<<"error_norm is "<<error_norm<<"\n";
-        
-        // add the solution to the current_temperature_field_local
-        ierr = VecAXPY(sys.current_temperature_field_local, 1, sys.sol);
-        
-        // scatter the sys.current_temperature_field_local to the global current_temperature_field
-        ierr = VecScatterCreateToAll(sys.current_temperature_field_local, &ctx, &current_temperature_field_global);
-        ierr = VecScatterBegin(ctx, sys.current_temperature_field_local, current_temperature_field_global, INSERT_VALUES, SCATTER_FORWARD);
-        ierr = VecScatterEnd(ctx, sys.current_temperature_field_local, current_temperature_field_global, INSERT_VALUES, SCATTER_FORWARD);
-        
-        // Call function to get a pointer to the global current_temperature_field vector*/
-        ierr = VecGetArray(current_temperature_field_global, &get);
-        MPI_Barrier(MPI_COMM_WORLD);
-        
-        // Update the current_temperature_field vector on each node.
-        for(int j=0; j<num_of_nodes; j++){
-            int equation_count = equation_numbers_of_nodes[j];
-            if(equation_count>=0)
-            current_temperature_field[j] = get[equation_count];
-        }
-        
-        /* Free PETSc objects */
-        ierr = VecRestoreArray(current_temperature_field_global, &get);
-        ierr = VecScatterDestroy(ctx);
-        ierr = VecDestroy(current_temperature_field_global);
-        
-        // check for convergence
-        /*
-        if(rank == 0){
-            std::cout<<"error_norm: "<<(double)error_norm<<"  rhs_norm: "<<(double)rhs_norm<<"\n";
-        }
-        */
-        if((double)error_norm < Constants::kNormTolerance_ && (double)rhs_norm < Constants::kYFunctionTolerance_){// convergence must be satisfied first, then consider temperature increment size.
             MPI_Barrier(MPI_COMM_WORLD);
+
+            /* Call function to do final assembly of PETSc matrix and vectors*/
+            Petsc_Assem(&sys);
+
+            MPI_Barrier(MPI_COMM_WORLD);
+//            printf("%.6f %.6f\n",error_norm,solver.NormOfVector(right_hand_side_function));
+//            MPI_Barrier(MPI_COMM_WORLD);
+            
+            if(sqrt((double)error_norm)<Constants::kNormTolerance_ &&
+               Iterations.NormOfVector(right_hand_side_function)<Constants::kYFunctionTolerance_){// convergence must be satisfied first, then consider temperature increment size.
+
+                /*
+                for(int j=0; j<num_of_nodes; j++){
+                    check_temperature_change_size_satisfiable=true;
+                    if(fabs(current_temperature_field[j]-initial_temperature_field[j])>maximum_temperature_change_per_time_increment){
+                        time_increment /= 4;
+                        if(time_increment<(minimum_time_increment)){
+                            if(rank == 0)
+                                printf("time increment size is too small. simulation aborted!\n");
+                            MPI_Barrier(MPI_COMM_WORLD);
+                            exit(-1);
+                        }
+                        if(rank == 0)
+                            printf("reduce time increment size1\n");
+                        MPI_Barrier(MPI_COMM_WORLD);
+                        num_of_iterations_with_unchanged_time_increment=0;
+                        iteration_number=0; //zero back the iteration num counting;
+                        for(int i=0; i<num_of_nodes; i++)
+                        current_temperature_field[i]=initial_temperature_field[i];  // set initial values to current_temperature_field[]
+                        check_temperature_change_size_satisfiable=false;
+                        
+                        break; // break from the for loop
+                    }
+                }//for
+                if(check_temperature_change_size_satisfiable==false) continue; //temperature change is too much, reduce it and try again
+ 
+                if(time_to_turn_off_heaters!=0.0){ // if heaters will be turned off during the simulation
+                    if(is_heaters_turned_off==false && (current_time+time_increment)>time_to_turn_off_heaters
+                        && time_to_turn_off_heaters-current_time>=minimum_time_increment ){
+                        if(rank == 0)
+                            printf("cut time increment to reach the time point to turn off heaters\n");
+                        MPI_Barrier(MPI_COMM_WORLD);
+                        time_increment = (time_to_turn_off_heaters-current_time);
+                        num_of_iterations_with_unchanged_time_increment=0;
+                        iteration_number=0; //zero back the iteration num counting;
+                        for(int i=0; i<num_of_nodes; i++)
+                        current_temperature_field[i]=initial_temperature_field[i];  // set initial values to current_temperature_field[]
+                        continue; //continue the while loop
+                    }
+                    if((current_time+time_increment)==time_to_turn_off_heaters){
+                        for(int k=0; k<(*(initialization.get_currents_in_heater())).get_current_in_heater().size(); k++)
+                        (*(initialization.get_currents_in_heater())).get_current_in_heater()[k]=0.0;
+                        is_heaters_turned_off==true;
+                    }
+                }
+  
+                ++num_of_iterations_with_unchanged_time_increment;
+ 
+                if(rank == 0)
+                    printf("number of iterations with unchanged time increment size is %d\n",num_of_iterations_with_unchanged_time_increment);
+                MPI_Barrier(MPI_COMM_WORLD);
+
+  
+                current_time+=time_increment;  //update the current time
+
+                if(num_of_iterations_with_unchanged_time_increment==2){ // check if time increment size is stable for recent two steps. then increase time increment size
+                    time_increment *= 2; 
+                    num_of_iterations_with_unchanged_time_increment=0;
+                    iteration_number=0; //zero back the iteration num counting;
+                    if(rank == 0)
+                        printf("time increment size increased\n");
+                    MPI_Barrier(MPI_COMM_WORLD);
+                }
+ */
+                if(rank == 0)
+                    printf("number of iteration to converge is %d\n",iteration_number);
+                MPI_Barrier(MPI_COMM_WORLD);
+                break;  // break from the while loop
+            }//if
+            
+            ++iteration_number;
+            
+/*
+            if(solver.LinearEquationsSolver(&global_vectors_and_matrices)==1){
+                time_increment /= 4; 
+                if(time_increment<(minimum_time_increment)){
+                    printf("time increment size is too small. simulation aborted!\n");
+                    exit(-1);
+                }
+                printf("reduce time increment size2\n");
+                num_of_iterations_with_unchanged_time_increment=0;
+                iteration_number=0; //zero back the iteration num counting;
+                for(int i=0; i<num_of_nodes; i++)
+                current_temperature_field[i]=initial_temperature_field[i];  // set initial values to current_temperature_field[]
+                
+                continue;
+            }
+*/
+            /* Call function to solve the tri-diagonal syste*/
+            Petsc_Solve(&sys);
+            
+//            std::cout<<"\n num_of_equations is "<<num_of_equations<<std::endl;
+//            for(int eqn_indx = 0; eqn_indx < num_of_equations; eqn_indx++) {
+//                obj->sol[eqn_indx] = get[eqn_indx]; /* store result in solution_of_last_iteration for error calculation */
+//                std::cout<<eqn_indx<<"  "<<solution_of_last_iteration[eqn_indx]<<"\n";
+//            }
+            
+            /* Call function to view the system - outputs a matlab file called results.m*/
+//            Petsc_View(sys,viewer);
+            
+/*  time_increment no longer needed
+            if(iteration_number>Constants::kMaxNewtonIteration_){
+                time_increment /= 4;
+                if(time_increment<(minimum_time_increment)){
+                    if(rank == 0)
+                        printf("time increment size is too small. simulation aborted!\n");
+                    MPI_Barrier(MPI_COMM_WORLD);
+                    exit(-1);
+                }
+                if(rank == 0)
+                    printf("reduce time increment size3\n");
+                MPI_Barrier(MPI_COMM_WORLD);
+                num_of_iterations_with_unchanged_time_increment=0;
+                iteration_number=0; //zero back the iteration num counting;
+                for(int i=0; i<num_of_nodes; i++)
+                    current_temperature_field[i] = initial_temperature_field[i];  // set initial values to current_temperature_field[]
+                continue;
+            }
+*/
+            // create a sequential vector that collects the global inforamtion of the sys.sol.
+            ierr = VecScatterCreateToAll(sys.sol, &ctx, &sol_sequential);
+            ierr = VecScatterBegin(ctx, sys.sol, sol_sequential, INSERT_VALUES, SCATTER_FORWARD);
+            ierr = VecScatterEnd(ctx, sys.sol, sol_sequential, INSERT_VALUES, SCATTER_FORWARD);
+            /* Call function to get a pointer to the Petsc solution vector*/
+            ierr = VecGetArray(sol_sequential, &get);
+            
+            for(int j=0; j<num_of_nodes; j++){
+                int equation_count = equation_numbers_of_nodes[j];
+                if(equation_count>=0)
+                    current_temperature_field[j] += get[equation_count];
+            }
+
+            ierr = VecDot(sys.sol, sys.sol, &error_norm);
+//            std::cout<<"error_norm is "<<error_norm<<"\n";
+
+            /* Free all PETSc objects so that we can finalize PETSc */
+            ierr = VecRestoreArray(sol_sequential, &get);
+            ierr = VecScatterDestroy(ctx);
+            ierr = VecDestroy(sol_sequential);
+            
+        }//while
+        
+        for(int i=0; i<num_of_nodes; i++){
+            initial_temperature_field[i]=current_temperature_field[i];
+        }
+        
+        temperature_norm_last = temperature_norm_current;
+        temperature_norm_current = Iterations.NormOfVector(initial_temperature_field);
+        
+        if(fabs(temperature_norm_current - temperature_norm_last) < Constants::kNormTolerance_ ){//when temperature is in steady state, terminate program.
             if(rank == 0){
-                printf("number of iteration to converge is %d\n", iteration_number);
+                output_results.OutputVtkFile(time_step, current_time, &initialization, &generate_mesh, initial_temperature_field);
+                output_results.OutputCopperSurfaceTemperature(time_step, current_time, &initialization, &generate_mesh, initial_temperature_field);
+                printf("the %dth time integration completed\n\n", time_step+1);
             }
             MPI_Barrier(MPI_COMM_WORLD);
-            break;  // break from the while loop
+            break;
         }
-        
-        //zero all necessary vectors and matrices for next iteration
-        iterations.ZeroVectorAndMatrix(&sys);
-
-    }//while
-    Petsc_Destroy(&sys);
-    //Must destroy current_temperature_field_local
-//    ierr = VecDestroy(sys.current_temperature_field_local);
+        if((time_step+1)%output_time_step_interval==0 || time_step==maximum_time_steps-1 || current_time>total_simulation_time 
+           || current_time==time_to_turn_off_heaters){
+            if(rank==0){
+                output_results.OutputVtkFile(time_step, current_time, &initialization, &generate_mesh, initial_temperature_field);
+                output_results.OutputCopperSurfaceTemperature(time_step, current_time, &initialization, &generate_mesh, initial_temperature_field);
+            }
+            MPI_Barrier(MPI_COMM_WORLD);
+        }
+        if(rank==0){
+            printf("the %dth time integration completed\n\n", time_step+1);
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
     
     /* Free all PETSc objects created for solve */
-//    Petsc_Destroy(&sys);
-   
-    if(rank==0){
-        output_results.OutputVtkFile(&initialization, &generate_mesh, current_temperature_field);
-        output_results.OutputCopperSurfaceTemperature(&initialization, &generate_mesh, current_temperature_field);
+    Petsc_Destroy(&sys);
 
+    if(rank==0){
         FILE* current_densities;
         current_densities=fopen("current_densities.txt","w");
         //  fprintf(current_densities,"units are A/m^2\n");
-        fprintf(current_densities, "units are A/cm^2\n");
+        fprintf(current_densities,"units are A/cm^2\n");
         //  double heater_cross_section_area=temperature_dependent_variables.get_heater_crosssection_area_mm_square()*1.0e-3*1.0e-3; //mm^2 -> m^2
-        double heater_cross_section_area = temperature_dependent_variables.get_heater_crosssection_area_mm_square()*1.0e-1*1.0e-1; //mm^2 -> cm^2
+        double heater_cross_section_area=temperature_dependent_variables.get_heater_crosssection_area_mm_square()*1.0e-1*1.0e-1; //mm^2 -> cm^2
         for(int i=0;i<Constants::kNumOfHeaters_;i++){
             double current=(*(initialization.get_currents_in_heater())).get_current_in_heater()[i]*1.0e-3; //mA -> A
             fprintf(current_densities,"%e\n",current/heater_cross_section_area);
         }
         fclose(current_densities);
+    
         printf("Analysis completed successfully!\n");
-        printf(" a (model temperature field).vtk file, a (copper surface temperature).txt file and a (current_density).txt file have been generated\n\n");
-        
-        std::cout<<"\n number of equation is "<< num_of_equations << std::endl;
+        printf("several (model temperature field).vtk files, (copper surface temperature).txt files and a (current_density).txt file have been generated\n\n");
     }
-    
-    
-    delete [] d_nnz; d_nnz = NULL;
-    delete [] o_nnz; o_nnz = NULL;
-  
     MPI_Barrier(MPI_COMM_WORLD);
     /*finalize PETSc*/
     Petsc_End();

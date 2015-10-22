@@ -1,7 +1,7 @@
 please_do_not_change_anything_other_than_the_numeric_value_of_parameters
 2  mesh_seeds_on_end_
-2  mesh_seeds_on_gap_(MustBeEvenNumber)
-1  mesh_seeds_on_heater_
+10  mesh_seeds_on_gap_(MustBeEvenNumber)
+5  mesh_seeds_on_heater_
 1  mesh_seeds_along_isolater_thickness_
 2  mesh_seeds_along_silicondioxide_thickness_
 1  mesh_seeds_along_copper_thickness_

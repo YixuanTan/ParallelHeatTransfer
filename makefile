@@ -30,7 +30,7 @@ LDFLAGS =\
 	-lpthread\
 	-lpetsc
 
-LDLIBS = -lglib -lm
+LDLIBS = -lglib -lm 
 
 LDLIBS += -framework IOK
 
