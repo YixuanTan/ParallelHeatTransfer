@@ -50,6 +50,9 @@ bookkeep.o: fem.hpp bookkeep.cpp
 main.o: main.cpp ${HS}
 	${CXX} ${STUFF} -g -c main.cpp
 
+radiation: main.o mycalls.o
+	${CXX} -Dradiation ${STUFF} -DMPI_VERSION -o driver main.o mycalls.o ${LDFLAGS}
+
 driver: main.o mycalls.o
 	${CXX} ${STUFF} -DMPI_VERSION -o driver main.o mycalls.o ${LDFLAGS}
 

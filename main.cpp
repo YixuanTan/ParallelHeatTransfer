@@ -1468,7 +1468,9 @@ void ElementalMatrix::MapElementalToGlobalStiffness(PETSC_STRUCT* obj, std::vect
             //            if(row_equation_number>=0 && column_equation_number>=0 && column_equation_number<=row_equation_number){
                 // first add this item to stiffness_matrix for constructing the rhs later.
                 // Note here, the term added up stiffness matrix is forced to take a negative sign. This is because we want to subtract stiffness_matrix(original) * current_temperature_field from rhs, but PETsc function MatMultAdd() can only do addition operation.
+                #ifdef radiation
                 ierr = MatSetValue(obj->stiffness_matrix,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)(-element_stiffness_matrix_[i][j]), ADD_VALUES);
+                #endif
                 //  also, we need to add this directly to the Amat.
                 ierr = MatSetValue(obj->Amat,(PetscInt)row_equation_number,(PetscInt)column_equation_number,(PetscScalar)(element_stiffness_matrix_[i][j]), ADD_VALUES);
                 /*
@@ -1604,8 +1606,9 @@ public:
 void Iterations::ZeroVectorAndMatrix(PETSC_STRUCT* obj){
     PetscErrorCode ierr;
     ierr = MatZeroEntries(obj->Amat);
+    #ifdef radiation
     ierr = MatZeroEntries(obj->stiffness_matrix);
-    
+    #endif
     ierr = VecZeroEntries(obj->rhs);
 //    ierr = VecZeroEntries(obj->current_temperature_field_local);
 }
@@ -1936,6 +1939,7 @@ int main(int argc, char **args) {
         
         MPI_Barrier(MPI_COMM_WORLD);
         
+        #ifdef radiation
         //    elemental_body_heat_flux_tangential_matrix.PrintBodyHeatFluxTangentialMatrix(body_heat_flux_tangential_matrix);
         for(int radiation_element_number=0; radiation_element_number < num_of_elements_with_radiation; radiation_element_number++) {
             int element_number = elements_with_radiation[radiation_element_number];
@@ -1962,38 +1966,36 @@ int main(int argc, char **args) {
         
         // assemble the stiffness matrix first, because stiffness matrix will be used to modifiy the rhs
         MPI_Barrier(MPI_COMM_WORLD);
-        if (iteration_number != 0){
-            
+        #endif
+        
 //            ierr = MatAssemblyBegin(sys.stiffness_matrix, MAT_FINAL_ASSEMBLY);
 //            ierr = MatAssemblyEnd(sys.stiffness_matrix, MAT_FINAL_ASSEMBLY);
             //Indicate same nonzero structure of successive linear system matrices
 //            MatSetOption(sys.stiffness_matrix, MAT_NO_NEW_NONZERO_LOCATIONS);
             
-            Petsc_Assem_Matrices(&sys);
+        Petsc_Assem_Matrices(&sys);
 //            std::cout<<"3333\n";
 //            getchar();
             
-            MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(MPI_COMM_WORLD);
             
-            Petsc_Assem_Vectors(&sys);
+        Petsc_Assem_Vectors(&sys);
 //            std::cout<<"44444\n";
 //            getchar();
-            
-        }
+
         MPI_Barrier(MPI_COMM_WORLD);
 //        std::cout<<"55555\n";
 //        getchar();
       
+        
+        #ifdef radiation
         // subtract stiffness_matrix * current_temperature_field from the rhs.
         // note here the stiffness matrix has already been added a negative sign on every component. This because we need to subtract the stiffness_matrix(original) * current_temperature_field
-        PetscErrorCode ierr = MatMultAdd(sys.stiffness_matrix, sys.current_temperature_field_local, sys.rhs, sys.rhs);
+        ierr = MatMultAdd(sys.stiffness_matrix, sys.current_temperature_field_local, sys.rhs, sys.rhs);
         
-#ifdef DEBUG
-        //            if(rank == 0)
-        //            std::cout<<"assembly finished\n";
-#endif
         MPI_Barrier(MPI_COMM_WORLD);
-
+        #endif
+        
 //        std::cout<<"66666\n";
 //        getchar();
     
@@ -2015,15 +2017,22 @@ int main(int argc, char **args) {
         MPI_Barrier(MPI_COMM_WORLD);
 //        std::cout<<"77777\n";
 //        getchar();
-        
+        #ifdef radiation
         ierr = VecNorm(sys.sol, NORM_2, &error_norm);
         ierr = VecNorm(sys.rhs, NORM_2, &rhs_norm);
         MPI_Barrier(MPI_COMM_WORLD);
-        
-        //            std::cout<<"error_norm is "<<error_norm<<"\n";
-        
         // add the solution to the current_temperature_field_local
         ierr = VecAXPY(sys.current_temperature_field_local, 1, sys.sol);
+        #else // no radiation boundary condition
+        // subtract the current_temperature_field_local by the solution to get the error
+        ierr = VecAXPY(sys.current_temperature_field_local, -1, sys.sol);
+        ierr = VecNorm(sys.current_temperature_field_local, NORM_2, &error_norm);
+        MPI_Barrier(MPI_COMM_WORLD);
+        // restore the current_temperature_field_local
+        ierr = VecCopy(sys.sol, sys.current_temperature_field_local);
+        #endif
+
+        // std::cout<<"error_norm is "<<error_norm<<"\n";
         
         // scatter the sys.current_temperature_field_local to the global current_temperature_field
         ierr = VecScatterCreateToAll(sys.current_temperature_field_local, &ctx, &current_temperature_field_global);
@@ -2052,6 +2061,7 @@ int main(int argc, char **args) {
             std::cout<<"error_norm: "<<(double)error_norm<<"  rhs_norm: "<<(double)rhs_norm<<"\n";
         }
         */
+        #ifdef radiation
         if((double)error_norm < Constants::kNormTolerance_ && (double)rhs_norm < Constants::kYFunctionTolerance_){// convergence must be satisfied first, then consider temperature increment size.
             MPI_Barrier(MPI_COMM_WORLD);
             if(rank == 0){
@@ -2060,6 +2070,16 @@ int main(int argc, char **args) {
             MPI_Barrier(MPI_COMM_WORLD);
             break;  // break from the while loop
         }
+        #else
+        if((double)error_norm < Constants::kNormTolerance_ ){// convergence must be satisfied first, then consider temperature increment size.
+            MPI_Barrier(MPI_COMM_WORLD);
+            if(rank == 0){
+                printf("number of iteration to converge is %d\n", iteration_number);
+            }
+            MPI_Barrier(MPI_COMM_WORLD);
+            break;  // break from the while loop
+        }
+        #endif
         
         //zero all necessary vectors and matrices for next iteration
         iterations.ZeroVectorAndMatrix(&sys);
