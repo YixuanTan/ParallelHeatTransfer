@@ -16,8 +16,7 @@
  %% the linear system to be solved using PETSc KSP methods. %%
  %% Prints the output to a file named output.txt %%
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
-#define _FIX
-#include "fem.hpp"
+#include "mycalls.hpp"
 #include <stdio.h>
 #include <iostream>
 #include <fstream>
@@ -29,7 +28,6 @@
 #include "petscksp.h"
 #include "petscmat.h"
 #include <mpi.h>
-#define DEBUG
 
 class Constants{
 public:

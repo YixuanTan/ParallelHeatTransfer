@@ -10,7 +10,7 @@ CXX=/usr/local/mpich3/3.1.2-thread-multiple/mpicxx
 #CXX=/usr/local/mpich2/latest/bin/mpicxx
 
 #If there are any .hpp files
-HS = fem.hpp share.hpp
+HS = mycalls.hpp share.hpp
 STUFF = -DMPICH_IGNORE_CXX_SEEK -I. -I/usr/include/ -I/usr/local/include\
 	-I${PETSC_DIR}/include\
 	-I${PETSC_DIR}/bmake/${PETSC_ARCH}\
