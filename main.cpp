@@ -34,8 +34,8 @@ public:
     static int kMeshSeedsAlongSTitaniumThickness_;
     static double kMinYCoordinate_;
 };
-double Constants::kLengthOfSquareDomain_ = 1.0;
-int Constants::kNumOfHeaters_ = 10;
+double Constants::kLengthOfSquareDomain_ = 5.0;
+int Constants::kNumOfHeaters_ = 50;
 double Constants::kStefanBoltzmann_=5.6703e-11; // units mW/(mm^2 * K^4)   5.6703e-8 W*m^-2*K^-4
 int Constants::kNumOfNodesInElement_=4;
 int Constants::kNumOfDofsPerNode_=1;
